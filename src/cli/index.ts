@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { Command } from "commander";
 import chalk from "chalk";
 import { registerAuthCommands, registerShortcutCommands } from "./auth.cmd.js";
+import { registerOpenApiCommands } from "./openapi.cmd.js";
 import { getMcpClientSync, getServerUrl } from "../core/mcp-client.js";
 
 // Load .env (no dependency needed)
@@ -35,6 +36,7 @@ program
 
 registerAuthCommands(program);
 registerShortcutCommands(program);
+registerOpenApiCommands(program);
 
 /** 递归给所有子命令设置 exitOverride，防止 REPL 中被意外退出 */
 function applyExitOverride(cmd: Command) {

@@ -761,7 +761,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "swap-tokens",
     "查询链上可兑换 Token 列表",
-    "market_list_swap_tokens",
+    "token_list_swap_tokens",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain;
@@ -776,7 +776,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "bridge-tokens",
     "查询跨链桥目标 Token",
-    "market_list_cross_chain_bridge_tokens",
+    "token_list_cross_chain_bridge_tokens",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.srcChain) args.source_chain = opts.srcChain;
@@ -847,7 +847,7 @@ export function registerShortcutCommands(program: Command) {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain;
       if (opts.start) args.start = opts.start;
-      if (opts.end) args.end = opts.end;
+      args.end = opts.end ?? new Date().toISOString();
       return args;
     },
     [
@@ -1058,11 +1058,6 @@ async function loginGoogleViaRest(
     }
 
     flowData = (await res.json()) as DeviceStartResponse;
-    console.log(
-      chalk.gray(
-        `  [debug] google/device/start response: ${JSON.stringify(flowData, null, 2)}`,
-      ),
-    );
   } catch (err) {
     loginSpinner.fail(
       `Failed to start Google login: ${(err as Error).message}`,
@@ -1133,11 +1128,6 @@ async function loginGoogleViaRest(
       if (!res.ok) continue;
 
       const poll = (await res.json()) as DevicePollResponse;
-      console.log(
-        chalk.gray(
-          `  [debug] google/device/poll response: ${JSON.stringify(poll, null, 2)}`,
-        ),
-      );
 
       if (poll.status === "ok") {
         const token = poll.access_token ?? poll.mcp_token;

@@ -1,11 +1,11 @@
 /**
- * Token 持久化 - 保存/读取 mcp_token 到 ~/.gate-wallet/auth.json
+ * Token 持久化 - 保存/读取 mcp_token 到 <project>/.gate-wallet/auth.json
  * 避免每次 CLI 启动都需要重新登录
  */
 
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface StoredAuth {
   mcp_token: string;
@@ -16,7 +16,8 @@ export interface StoredAuth {
   server_url: string;
 }
 
-const AUTH_DIR = join(homedir(), ".gate-wallet");
+const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const AUTH_DIR = join(PROJECT_ROOT, ".gate-wallet");
 const AUTH_FILE = join(AUTH_DIR, "auth.json");
 
 export function saveAuth(auth: StoredAuth): void {

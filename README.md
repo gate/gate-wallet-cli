@@ -34,7 +34,74 @@ gate-wallet> balance
 gate-wallet> exit
 ```
 
-登录成功后 token 自动保存到本地（`~/.gate-wallet/auth.json`），下次启动无需重复登录，30 天有效。
+登录成功后 token 自动保存到项目目录（`.gate-wallet/auth.json`），下次启动无需重复登录，30 天有效。
+
+## 配置
+
+### OAuth 登录凭证
+
+登录后自动保存，无需手动配置：
+
+```
+.gate-wallet/auth.json    # OAuth token（自动生成，已被 .gitignore 忽略）
+```
+
+### OpenAPI AK/SK
+
+CLI 集成了 Gate DEX OpenAPI，用于免登录查询（报价、Gas、排行、安全审计等）。配置文件：
+
+```
+.gate-wallet/openapi.json  # AK/SK 凭证（已被 .gitignore 忽略）
+```
+
+**首次使用 `openapi-*` 命令前需先配置 AK/SK**，否则会提示未配置。前往 [Gate DEX Developer](https://www.gatedex.com/developer) 创建 AK/SK。
+
+#### 双通道架构
+
+OpenAPI 分为两个通道，可独立配置 AK/SK 和 endpoint：
+
+| 通道    | 用途                                                      | CLI 参数                            |
+| ------- | --------------------------------------------------------- | ----------------------------------- |
+| `trade` | Swap 交易（`trade.swap.*`）                               | `--set-ak` / `--set-sk`             |
+| `query` | 代币查询 / 行情 / 安全审计（`base.token.*` / `market.*`） | `--set-query-ak` / `--set-query-sk` |
+
+#### 配置方式
+
+**方式一：CLI 命令**
+
+```bash
+# 设置 Trade 通道（Swap 交易）
+pnpm cli openapi-config --set-ak YOUR_TRADE_AK --set-sk YOUR_TRADE_SK
+
+# 设置 Query 通道（查询行情/代币）
+pnpm cli openapi-config --set-query-ak YOUR_QUERY_AK --set-query-sk YOUR_QUERY_SK
+
+# 查看当前配置
+pnpm cli openapi-config
+```
+
+**方式二：直接编辑 `.gate-wallet/openapi.json`**
+
+```json
+{
+  "trade": {
+    "api_key": "YOUR_TRADE_AK",
+    "secret_key": "YOUR_TRADE_SK"
+  },
+  "query": {
+    "api_key": "YOUR_QUERY_AK",
+    "secret_key": "YOUR_QUERY_SK"
+  },
+  "default_slippage": 0.03,
+  "default_slippage_type": 1
+}
+```
+
+- `trade` 和 `query` 可使用相同或不同的 AK/SK
+- 每个通道可选配 `endpoint` 字段，指定独立的 API 地址
+- 未配置 `endpoint` 时默认使用生产环境 `https://openapi.gateweb3.cc/api/v1/dex`
+
+> **注意**：`.gate-wallet/` 目录已在 `.gitignore` 中，凭证不会提交到 Git。
 
 ## 登录 / 登出
 
@@ -127,6 +194,45 @@ logout
 | -------------------- | ------------------------ |
 | `tools`              | 列出所有可用的 MCP Tools |
 | `call <tool> [json]` | 直接调用任意 MCP Tool    |
+
+### OpenAPI 命令（免登录）
+
+#### 配置
+
+| 命令             | 说明                   |
+| ---------------- | ---------------------- |
+| `openapi-config` | 查看 / 更新 AK/SK 配置 |
+| `openapi-chains` | 查询支持的链列表       |
+| `openapi-gas`    | 查询 Gas 费用          |
+
+#### 代币查询
+
+| 命令                    | 说明                 |
+| ----------------------- | -------------------- |
+| `openapi-token-rank`    | 代币涨跌幅排行榜     |
+| `openapi-token-risk`    | 代币安全审计         |
+| `openapi-swap-tokens`   | 可兑换代币列表       |
+| `openapi-new-tokens`    | 按时间筛选新上线代币 |
+| `openapi-bridge-tokens` | 跨链桥目标代币       |
+
+#### 行情数据
+
+| 命令                | 说明         |
+| ------------------- | ------------ |
+| `openapi-volume`    | 交易量统计   |
+| `openapi-liquidity` | 流动性池事件 |
+
+#### Swap 交易
+
+| 命令            | 说明           |
+| --------------- | -------------- |
+| `openapi-quote` | 获取 Swap 报价 |
+
+#### 调试
+
+| 命令            | 说明                        |
+| --------------- | --------------------------- |
+| `openapi-debug` | 直接调用任意 OpenAPI action |
 
 ## 操作示例
 
