@@ -10,11 +10,20 @@ pnpm install
 
 ## 快速开始
 
+### 单命令模式
+
+```bash
+pnpm cli login              # Gate OAuth 登录
+pnpm cli login --google     # Google OAuth 登录
+pnpm cli balance            # 查询余额
+pnpm cli gas SOL            # 查询 Gas
+```
+
+### 交互模式
+
 ```bash
 pnpm cli
 ```
-
-进入交互模式后：
 
 ```
 Gate Wallet CLI - Interactive Mode
@@ -25,7 +34,7 @@ gate-wallet> balance
 gate-wallet> exit
 ```
 
-> **注意**：Token 仅保存在内存中，退出交互模式即失效，下次启动需重新登录。
+登录成功后 token 自动保存到本地（`~/.gate-wallet/auth.json`），下次启动无需重复登录，30 天有效。
 
 ## 登录 / 登出
 

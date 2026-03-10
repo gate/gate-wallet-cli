@@ -44,69 +44,85 @@ function applyExitOverride(cmd: Command) {
   }
 }
 
-// 只支持交互模式（token 仅存内存，退出即失效）
-applyExitOverride(program);
-program.configureOutput({
-  writeOut: () => {},
-  writeErr: (str) => {
-    if (str.trim()) console.error(str.trim());
-  },
-});
+const rawArgs = process.argv.slice(2);
+const { operands } = program.parseOptions(rawArgs);
+const hasSubcommand = operands.length > 0;
 
-console.log(chalk.bold("Gate Wallet CLI - Interactive Mode"));
-console.log(chalk.gray(`Server: ${getServerUrl()}`));
-console.log(
-  chalk.gray(
-    "Type 'login' to start, 'help' for all commands, 'exit' to quit.\n",
-  ),
-);
+if (hasSubcommand) {
+  program
+    .parseAsync()
+    .then(async () => {
+      const mcp = getMcpClientSync();
+      if (mcp) await mcp.disconnect();
+      process.exit(0);
+    })
+    .catch(() => {
+      process.exit(1);
+    });
+} else {
+  applyExitOverride(program);
+  program.configureOutput({
+    writeOut: () => {},
+    writeErr: (str) => {
+      if (str.trim()) console.error(str.trim());
+    },
+  });
 
-const rl = createInterface({
-  input: process.stdin,
-  output: process.stdout,
-  prompt: chalk.cyan("gate-wallet> "),
-});
+  console.log(chalk.bold("Gate Wallet CLI - Interactive Mode"));
+  console.log(chalk.gray(`Server: ${getServerUrl()}`));
+  console.log(
+    chalk.gray(
+      "Type 'login' to start, 'help' for all commands, 'exit' to quit.\n",
+    ),
+  );
 
-rl.prompt();
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: chalk.cyan("gate-wallet> "),
+  });
 
-rl.on("line", async (line) => {
-  const input = line.trim();
+  rl.prompt();
 
-  if (!input) {
+  rl.on("line", async (line) => {
+    const input = line.trim();
+
+    if (!input) {
+      rl.prompt();
+      return;
+    }
+
+    if (input === "exit" || input === "quit") {
+      const mcp = getMcpClientSync();
+      if (mcp) await mcp.disconnect();
+      console.log(chalk.gray("Bye!"));
+      process.exit(0);
+    }
+
+    if (input === "help") {
+      program.outputHelp();
+      rl.prompt();
+      return;
+    }
+
+    const argv = parseArgs(input);
+
+    try {
+      await program.parseAsync(["node", "gate-wallet", ...argv]);
+    } catch {
+      // Commander 错误已由其内部处理
+    }
+
+    console.log();
     rl.prompt();
-    return;
-  }
+  });
 
-  if (input === "exit" || input === "quit") {
+  rl.on("close", async () => {
     const mcp = getMcpClientSync();
     if (mcp) await mcp.disconnect();
-    console.log(chalk.gray("Bye!"));
     process.exit(0);
-  }
-
-  if (input === "help") {
-    program.outputHelp();
-    rl.prompt();
-    return;
-  }
-
-  const argv = parseArgs(input);
-
-  try {
-    await program.parseAsync(["node", "gate-wallet", ...argv]);
-  } catch {
-    // Commander 错误已由其内部处理
-  }
-
-  console.log();
-  rl.prompt();
-});
-
-rl.on("close", async () => {
-  const mcp = getMcpClientSync();
-  if (mcp) await mcp.disconnect();
-  process.exit(0);
-});
+  });
+}
 
 /** 简单解析命令行字符串，支持引号包裹的参数 */
 function parseArgs(input: string): string[] {

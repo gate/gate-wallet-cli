@@ -8,6 +8,12 @@ import {
 } from "../core/mcp-client.js";
 import type { GateMcpClient } from "../core/mcp-client.js";
 import { openBrowser } from "../core/oauth.js";
+import {
+  saveAuth,
+  loadAuth,
+  clearAuth,
+  getAuthFilePath,
+} from "../core/token-store.js";
 
 export function registerAuthCommands(program: Command) {
   program
@@ -16,6 +22,32 @@ export function registerAuthCommands(program: Command) {
     .option("--google", "Use Google OAuth instead of Gate")
     .action(async function (this: Command, opts: { google?: boolean }) {
       const serverUrl = getServerUrl();
+
+      const stored = loadAuth();
+      if (stored) {
+        const connectSpinner = ora("Restoring previous session...").start();
+        try {
+          const mcp = await getMcpClient({ serverUrl });
+          mcp.setMcpToken(stored.mcp_token);
+          connectSpinner.succeed(
+            "Already logged in (session restored from disk)",
+          );
+          if (stored.user_id)
+            console.log(chalk.green(`  User ID: ${stored.user_id}`));
+          console.log(chalk.green(`  Provider: ${stored.provider}`));
+          console.log(
+            chalk.gray(
+              `  Run ${chalk.white("logout")} to switch accounts.`,
+            ),
+          );
+          return;
+        } catch {
+          connectSpinner.warn(
+            "Stored session invalid, starting fresh login...",
+          );
+          clearAuth();
+        }
+      }
 
       try {
         const connectSpinner = ora("Connecting to MCP Server...").start();
@@ -38,9 +70,23 @@ export function registerAuthCommands(program: Command) {
     .description("Show connection and auth status")
     .action(async function (this: Command) {
       const mcp = getMcpClientSync();
+      const stored = loadAuth();
 
       if (mcp?.isAuthenticated()) {
         console.log(chalk.green("MCP: connected & authenticated"));
+        return;
+      }
+
+      if (stored) {
+        console.log(chalk.green("Auth: token found on disk"));
+        console.log(`  Provider: ${stored.provider}`);
+        if (stored.user_id) console.log(`  User ID: ${stored.user_id}`);
+        if (stored.expires_at) {
+          const remaining = Math.max(0, stored.expires_at - Date.now());
+          const days = Math.floor(remaining / 86_400_000);
+          console.log(`  Expires in: ${days} days`);
+        }
+        console.log(chalk.gray(`  File: ${getAuthFilePath()}`));
       } else {
         console.log(chalk.yellow("Not logged in."));
         console.log(
@@ -63,7 +109,8 @@ export function registerAuthCommands(program: Command) {
           // best-effort server-side logout
         }
       }
-      console.log(chalk.gray("Logged out."));
+      clearAuth();
+      console.log(chalk.gray("Logged out. Token cleared."));
     });
 
   program
@@ -118,7 +165,12 @@ export function registerAuthCommands(program: Command) {
 async function ensureAuthedMcp(): Promise<GateMcpClient> {
   const mcp = await getMcpClient();
   if (!mcp.isAuthenticated()) {
-    throw new Error("Not logged in. Run: login");
+    const stored = loadAuth();
+    if (stored) {
+      mcp.setMcpToken(stored.mcp_token);
+    } else {
+      throw new Error("Not logged in. Run: login");
+    }
   }
   return mcp;
 }
@@ -919,10 +971,22 @@ async function loginWithDeviceFlow(
           process.removeListener("SIGINT", onSigint);
           pollSpinner.succeed("Login successful!");
 
+          saveAuth({
+            mcp_token: token,
+            provider: isGoogle ? "google" : "gate",
+            user_id: poll.user_id,
+            expires_at: poll.expires_in
+              ? Date.now() + poll.expires_in * 1000
+              : Date.now() + 30 * 86_400_000,
+            env: "default",
+            server_url: serverUrl,
+          });
+
           console.log();
           if (poll.user_id)
             console.log(chalk.green(`  User ID: ${poll.user_id}`));
           console.log(chalk.green(`  Wallet: custodial (${provider})`));
+          console.log(chalk.gray(`  Token saved to ${getAuthFilePath()}`));
 
           await reportWalletAddresses(mcp);
           return;
@@ -1083,12 +1147,24 @@ async function loginGoogleViaRest(
           process.removeListener("SIGINT", onSigint);
           pollSpinner.succeed("Google login successful!");
 
+          saveAuth({
+            mcp_token: token,
+            provider: "google",
+            user_id: poll.user_id,
+            expires_at: poll.expires_in
+              ? Date.now() + poll.expires_in * 1000
+              : Date.now() + 30 * 86_400_000,
+            env: "default",
+            server_url: serverUrl,
+          });
+
           console.log();
           if (poll.user_id)
             console.log(chalk.green(`  User ID: ${poll.user_id}`));
           if (poll.wallet_address)
             console.log(chalk.green(`  Wallet: ${poll.wallet_address}`));
           console.log(chalk.green(`  Provider: Google`));
+          console.log(chalk.gray(`  Token saved to ${getAuthFilePath()}`));
 
           await reportWalletAddresses(mcp);
           return;
@@ -1193,12 +1269,24 @@ async function loginGateViaRest(
           process.removeListener("SIGINT", onSigint);
           pollSpinner.succeed("Gate login successful!");
 
+          saveAuth({
+            mcp_token: token,
+            provider: "gate",
+            user_id: poll.user_id,
+            expires_at: poll.expires_in
+              ? Date.now() + poll.expires_in * 1000
+              : Date.now() + 30 * 86_400_000,
+            env: "default",
+            server_url: serverUrl,
+          });
+
           console.log();
           if (poll.user_id)
             console.log(chalk.green(`  User ID: ${poll.user_id}`));
           if (poll.wallet_address)
             console.log(chalk.green(`  Wallet: ${poll.wallet_address}`));
           console.log(chalk.green(`  Provider: Gate`));
+          console.log(chalk.gray(`  Token saved to ${getAuthFilePath()}`));
 
           await reportWalletAddresses(mcp);
           return;
