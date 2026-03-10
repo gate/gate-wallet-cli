@@ -1,7 +1,7 @@
 ---
 name: gate-wallet-cli
-version: "1.0.0"
-updated: "2026-03-09"
+version: "1.1.0"
+updated: "2026-03-10"
 description: "Interact with Gate Web3 custodial wallet via MCP protocol. Supports Gate/Google OAuth login, wallet asset queries, transfers, swap/bridge, market data, token info, security audits, chain config and RPC calls. Use when the user asks about wallet balance, token transfers, swaps, market data, or token security on supported chains (ETH, SOL, BSC, Base, etc.)."
 ---
 
@@ -27,21 +27,44 @@ pnpm cli                    # 进入 REPL
 
 ## Cursor Agent 操作方式
 
-Agent 直接使用**单命令模式**即可，每条命令独立执行并自动退出：
+### 登录流程（首次 / Token 过期时）
+
+当任意命令返回 `Not logged in. Run: login` 或 `~/.gate-wallet/auth.json` 不存在时，执行以下流程：
+
+1. **后台启动登录命令**（`block_until_ms: 0`，需 `required_permissions: ["all"]`）：
 
 ```bash
-pnpm cli balance
-pnpm cli gas ETH
-pnpm cli call wallet.get_addresses
-pnpm cli call tx.gas '{"chain":"SOL","from":"BTYz...","to":"So111...","data":"AQAA..."}'
+cd /Users/juice/Documents/gate-project/gate-wallet-cli && pnpm cli login
+# Google 登录: pnpm cli login --google
 ```
 
-- 登录 token 从 `~/.gate-wallet/auth.json` 自动加载，无需手动管理
-- 如果 token 过期或不存在，命令会返回 `Not logged in. Run: login`，需提示用户在终端执行 `pnpm cli login`
+2. **浏览器自动打开**：CLI 会自动调用系统浏览器打开 Gate/Google 授权页面，无需 Agent 手动 `open` URL
+3. **自动轮询**：CLI 内置轮询机制（每 5 秒），用户在浏览器完成授权后自动检测并保存 token
+4. **监控终端输出**：等待 10~15 秒后读取终端文件，检查是否出现以下关键字：
+   - `login successful` → 登录成功，可以继续后续操作
+   - `Browser opened` + 仍在 `Waiting for authorization` → 用户尚未授权，继续等待（每 10 秒轮询一次终端文件，最多 120 秒）
+   - `Could not open browser` → 浏览器未打开，从终端输出中提取 URL 告知用户手动打开
+   - `Login failed` / `Login timed out` → 登录失败，提示用户重试
 
-### 备用方案：REST API + MCP JSON-RPC
+```
+完整成功输出示例：
+✔ MCP Server connected
+✔ Gate OAuth flow started
+  Code: GTDF_XXX
+  ✔ Browser opened — please authorize there.
+✔ Gate login successful!
+  User ID: xxx
+  Token saved to /Users/juice/.gate-wallet/auth.json
+✔ Wallet addresses reported (2 chains)
+```
 
-当单命令模式不可用时，可通过 cURL 直接调用：
+5. **登录成功后**：Token 自动保存到 `~/.gate-wallet/auth.json`（30 天有效），后续所有命令自动加载
+
+> **重要**：不要使用 `block_until_ms` 阻塞等待登录命令，因为登录耗时取决于用户在浏览器中的操作速度（几秒到几分钟不等）。始终用后台模式 + 轮询终端文件的方式监控。
+
+### 备用方案：REST API 手动登录
+
+仅当 `pnpm cli login` 不可用时（如依赖损坏、编译失败），才使用此方案：
 
 1. 从 `.env` 读取 `MCP_URL`，去掉 `/mcp` 得到 `baseUrl`
 2. 发起 device flow（需 `full_network` 权限）：
@@ -52,7 +75,7 @@ curl -s -X POST {baseUrl}/oauth/gate/device/start \
 # Google 登录用: {baseUrl}/oauth/google/device/start
 ```
 
-3. 用 `open`(macOS) / `xdg-open`(Linux) 打开返回的 `verification_url`，提示用户在浏览器授权
+3. 用 `open`(macOS) / `xdg-open`(Linux) 打开返回的 `verification_url`（需 `required_permissions: ["all"]`），提示用户在浏览器授权
 4. 每隔 `interval` 秒轮询，直到 `status: "ok"`：
 
 ```bash
@@ -61,7 +84,32 @@ curl -s -X POST {baseUrl}/oauth/gate/device/poll \
   -d '{"flow_id":"{flow_id}"}'
 ```
 
-5. 从响应提取 `mcp_token`
+5. 从响应提取 `mcp_token`，手动写入 `~/.gate-wallet/auth.json`：
+
+```json
+{
+  "mcp_token": "{mcp_token}",
+  "provider": "gate",
+  "user_id": "{user_id}",
+  "expires_at": {now_ms + expires_in * 1000},
+  "env": "default",
+  "server_url": "{MCP_URL}"
+}
+```
+
+### 执行命令
+
+Agent 直接使用**单命令模式**，每条命令独立执行并自动退出：
+
+```bash
+pnpm cli balance
+pnpm cli gas ETH
+pnpm cli call wallet.get_addresses
+pnpm cli call tx.gas '{"chain":"SOL","from":"BTYz...","to":"So111...","data":"AQAA..."}'
+```
+
+- 登录 token 从 `~/.gate-wallet/auth.json` 自动加载，无需手动管理
+- 如果 token 过期或不存在，命令会返回 `Not logged in. Run: login`，按上述登录流程处理
 
 ### MCP JSON-RPC 调用
 
@@ -259,7 +307,7 @@ swap-detail <order_id>                     # 跟踪状态
 
 ## Common Pitfalls
 
-1. **未登录就操作**：除 `tools` / `chain-config` 外，所有命令需先 `login`
+1. **未登录就操作**：除 `tools` / `chain-config` 外，所有命令需先 `login`。Agent 收到 `Not logged in` 时应自动触发登录流程（见上方"登录流程"），而非让用户手动操作
 2. **原生代币地址**：Swap 中 ETH/SOL/BNB 等原生代币用 `-`，不是合约地址
 3. **native-in/out 忘记设置**：原生代币必须设 `--native-in 1` 或 `--native-out 1`，否则 Swap 会失败
 4. **报价过期**：`quote` 结果有时效性，超过 ~30s 价格可能变动，建议立即执行或重新报价

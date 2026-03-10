@@ -926,14 +926,14 @@ async function loginWithDeviceFlow(
 
   loginSpinner.succeed("Login flow started");
 
-  console.log();
-  console.log(chalk.bold("Please authorize in the browser:"));
-  console.log(chalk.cyan.underline(parsed.verification_url));
   if (parsed.user_code) {
-    console.log(chalk.gray(`Code: ${parsed.user_code}`));
+    console.log(chalk.gray(`  Code: ${parsed.user_code}`));
   }
-  console.log();
-  openBrowser(parsed.verification_url);
+
+  const opened = await openBrowser(parsed.verification_url);
+  if (opened) {
+    console.log(chalk.green("  ✔ Browser opened — please authorize there."));
+  }
 
   const pollSpinner = ora("Waiting for authorization...").start();
   const intervalMs = (parsed.interval ?? 5) * 1000;
@@ -1100,15 +1100,14 @@ async function loginGoogleViaRest(
 
   loginSpinner.succeed("Google OAuth flow started");
 
-  // 3. 打开浏览器
-  console.log();
-  console.log(chalk.bold("Please authorize in the browser:"));
-  console.log(chalk.cyan.underline(authUrl));
   if (flowData.user_code) {
-    console.log(chalk.gray(`Code: ${flowData.user_code}`));
+    console.log(chalk.gray(`  Code: ${flowData.user_code}`));
   }
-  console.log();
-  openBrowser(authUrl);
+
+  const opened = await openBrowser(authUrl);
+  if (opened) {
+    console.log(chalk.green("  ✔ Browser opened — please authorize there."));
+  }
 
   // 4. 轮询等待结果
   const pollSpinner = ora("Waiting for Google authorization...").start();
@@ -1229,14 +1228,14 @@ async function loginGateViaRest(
 
   loginSpinner.succeed("Gate OAuth flow started");
 
-  console.log();
-  console.log(chalk.bold("Please authorize in the browser:"));
-  console.log(chalk.cyan.underline(flowData.verification_url));
   if (flowData.user_code) {
-    console.log(chalk.gray(`Code: ${flowData.user_code}`));
+    console.log(chalk.gray(`  Code: ${flowData.user_code}`));
   }
-  console.log();
-  openBrowser(flowData.verification_url);
+
+  const opened = await openBrowser(flowData.verification_url);
+  if (opened) {
+    console.log(chalk.green("  ✔ Browser opened — please authorize there."));
+  }
 
   const pollSpinner = ora("Waiting for Gate authorization...").start();
   const intervalMs = (flowData.interval ?? 5) * 1000;

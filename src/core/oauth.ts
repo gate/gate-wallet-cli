@@ -8,7 +8,7 @@
  */
 
 import { createServer, type Server } from "node:http";
-import { exec } from "node:child_process";
+import open from "open";
 
 // ─── 公共类型 ─────────────────────────────────────────────
 
@@ -77,19 +77,24 @@ const ERROR_HTML = (msg: string) => `<!DOCTYPE html>
 
 // ─── 跨平台打开浏览器 ──────────────────────────────────
 
-export function openBrowser(url: string): void {
-  const cmd =
-    process.platform === "darwin"
-      ? `open "${url}"`
-      : process.platform === "win32"
-        ? `start "${url}"`
-        : `xdg-open "${url}"`;
+export async function openBrowser(url: string): Promise<boolean> {
+  try {
+    await open(url);
+    return true;
+  } catch {
+    printManualUrl(url);
+    return false;
+  }
+}
 
-  exec(cmd, (err) => {
-    if (err) {
-      console.log(`\nPlease open this URL in your browser:\n${url}\n`);
-    }
-  });
+function printManualUrl(url: string): void {
+  const termLink = `\x1b]8;;${url}\x1b\\Click here to open\x1b]8;;\x1b\\`;
+  console.log();
+  console.log(`\x1b[33m⚠  Could not open browser automatically.\x1b[0m`);
+  console.log(`\x1b[1m   ${termLink}\x1b[0m  or copy the URL below:`);
+  console.log();
+  console.log(`   \x1b[36m${url}\x1b[0m`);
+  console.log();
 }
 
 // ─── 基类：本地回调 OAuth ──────────────────────────────
@@ -176,7 +181,7 @@ abstract class BaseLocalOAuth<C extends BaseOAuthConfig> {
         callbackPort = (server.address() as { port: number }).port;
         const redirectUri = `http://localhost:${callbackPort}/callback`;
         const authUrl = this.buildAuthUrl(redirectUri);
-        openBrowser(authUrl);
+        openBrowser(authUrl).catch(() => {});
       });
 
       server.on("error", (err) => {
