@@ -1,5 +1,5 @@
 /**
- * OpenAPI 配置管理 - 保存/读取 AK/SK 到 <project>/.gate-wallet/openapi.json
+ * OpenAPI 配置管理 - 保存/读取 AK/SK 到 ~/.gate-wallet/openapi.json
  * 与 auth.json 同目录，独立文件
  */
 
@@ -10,8 +10,8 @@ import {
   existsSync,
   chmodSync,
 } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 export interface OpenApiCredential {
   api_key: string;
@@ -26,8 +26,7 @@ export interface OpenApiConfig {
   default_slippage_type?: number;
 }
 
-const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const CONFIG_DIR = join(PROJECT_ROOT, ".gate-wallet");
+const CONFIG_DIR = join(homedir(), ".gate-wallet");
 const CONFIG_FILE = join(CONFIG_DIR, "openapi.json");
 
 /**

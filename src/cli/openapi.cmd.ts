@@ -70,7 +70,7 @@ const NO_CONFIG_MSG = [
   "",
   `  pnpm cli openapi-config --set-ak YOUR_AK --set-sk YOUR_SK`,
   "",
-  `  或直接编辑 .gate-wallet/openapi.json`,
+  `  或直接编辑 ~/.gate-wallet/openapi.json`,
   `  获取 AK/SK: https://www.gatedex.com/developer`,
 ].join("\n");
 

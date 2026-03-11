@@ -15,20 +15,18 @@ Dual-channel Gate Web3 wallet CLI:
 ## Quick Start
 
 ```bash
-cd /Users/juice/Documents/gate-project/gate-wallet-cli
-
 # MCP channel (requires login)
-pnpm cli login
-pnpm cli balance
-pnpm cli send --chain ETH --to 0x... --amount 0.01
+gate-wallet login
+gate-wallet balance
+gate-wallet send --chain ETH --to 0x... --amount 0.01
 
 # OpenAPI channel (no login required)
-pnpm cli openapi-token-rank --chain eth --limit 10
-pnpm cli openapi-volume --chain eth --address 0x...
-pnpm cli openapi-quote --chain eth --from - --to 0xdAC1... --amount 0.01 --wallet 0x...
+gate-wallet openapi-token-rank --chain eth --limit 10
+gate-wallet openapi-volume --chain eth --address 0x...
+gate-wallet openapi-quote --chain eth --from - --to 0xdAC1... --amount 0.01 --wallet 0x...
 
 # Interactive REPL mode
-pnpm cli
+gate-wallet
 ```
 
 ## Channel Selection Strategy
@@ -49,12 +47,12 @@ Agent should automatically select the appropriate channel:
 
 ## Credential Storage
 
-All credentials are stored in `<project_root>/.gate-wallet/` (gitignored):
+All credentials are stored in `~/.gate-wallet/` (user home directory):
 
-| File                        | Content                        | Created by                                                           |
-| --------------------------- | ------------------------------ | -------------------------------------------------------------------- |
-| `.gate-wallet/auth.json`    | OAuth `mcp_token` (30-day TTL) | `login` command (auto)                                               |
-| `.gate-wallet/openapi.json` | AK/SK credentials              | `openapi-config --set-ak <ak> --set-sk <sk>` (manual setup required) |
+| File                          | Content                        | Created by                                                           |
+| ----------------------------- | ------------------------------ | -------------------------------------------------------------------- |
+| `~/.gate-wallet/auth.json`    | OAuth `mcp_token` (30-day TTL) | `login` command (auto)                                               |
+| `~/.gate-wallet/openapi.json` | AK/SK credentials              | `openapi-config --set-ak <ak> --set-sk <sk>` (manual setup required) |
 
 ---
 
@@ -63,21 +61,21 @@ All credentials are stored in `<project_root>/.gate-wallet/` (gitignored):
 Agent should use **single-command mode** — each command runs independently and exits:
 
 ```bash
-pnpm cli balance
-pnpm cli gas ETH
-pnpm cli openapi-token-rank --chain eth
-pnpm cli call wallet.get_addresses
+gate-wallet balance
+gate-wallet gas ETH
+gate-wallet openapi-token-rank --chain eth
+gate-wallet call wallet.get_addresses
 ```
 
 ### Login Flow (first time / token expired)
 
-Triggered when any command returns `Not logged in. Run: login` or `.gate-wallet/auth.json` is missing:
+Triggered when any command returns `Not logged in. Run: login` or `~/.gate-wallet/auth.json` is missing:
 
 1. **Start login in background** (`block_until_ms: 0`, `required_permissions: ["all"]`):
 
 ```bash
-cd /Users/juice/Documents/gate-project/gate-wallet-cli && pnpm cli login
-# For Google: pnpm cli login --google
+gate-wallet login
+# For Google: gate-wallet login --google
 ```
 
 2. **Browser auto-opens** the authorization page
@@ -85,7 +83,7 @@ cd /Users/juice/Documents/gate-project/gate-wallet-cli && pnpm cli login
    - `login successful` → proceed with subsequent commands
    - `Waiting for authorization` → user hasn't authorized yet, keep polling (every 10s, max 120s)
    - `Login failed` / `Login timed out` → prompt user to retry
-4. **On success**: token auto-saved to `.gate-wallet/auth.json`
+4. **On success**: token auto-saved to `~/.gate-wallet/auth.json`
 
 > **Important**: Never use `block_until_ms` to block-wait for login. Always use background mode + terminal file polling.
 
@@ -94,20 +92,20 @@ cd /Users/juice/Documents/gate-project/gate-wallet-cli && pnpm cli login
 **Level 1 — CLI shortcut commands** (preferred, auto-handles auth):
 
 ```bash
-pnpm cli balance
-pnpm cli send --chain ETH --to 0x... --amount 0.1
+gate-wallet balance
+gate-wallet send --chain ETH --to 0x... --amount 0.1
 ```
 
 **Level 2 — CLI `call` generic invocation** (when no shortcut exists):
 
 ```bash
-pnpm cli call wallet.get_addresses
-pnpm cli call tx.gas '{"chain":"SOL","from":"BTYz..."}'
+gate-wallet call wallet.get_addresses
+gate-wallet call tx.gas '{"chain":"SOL","from":"BTYz..."}'
 ```
 
 **Level 3 — MCP JSON-RPC** (when Level 2 returns 401):
 
-> The CLI `call` subcommand does not guarantee auto-injection of `mcp_token` for all tools. On any 401, fall back to raw JSON-RPC, reading `mcp_token` from `.gate-wallet/auth.json`.
+> The CLI `call` subcommand does not guarantee auto-injection of `mcp_token` for all tools. On any 401, fall back to raw JSON-RPC, reading `mcp_token` from `~/.gate-wallet/auth.json`.
 
 ```bash
 # 1. Initialize (get session-id, reusable until timeout)
@@ -130,13 +128,13 @@ curl -s -X POST {MCP_URL} \
 
 ### Fallback: REST API Manual Login
 
-Only when `pnpm cli login` is unavailable (e.g. deps broken):
+Only when `gate-wallet login` is unavailable (e.g. deps broken):
 
-1. Read `MCP_URL` from `.env`, strip `/mcp` to get `baseUrl`
+1. Read `MCP_URL` from `~/.gate-wallet/.env`, strip `/mcp` to get `baseUrl`
 2. `curl -s -X POST {baseUrl}/oauth/gate/device/start -H 'Content-Type: application/json' -d '{}'`
 3. Open returned `verification_url` with `open` (macOS), prompt user to authorize in browser
 4. Poll `{baseUrl}/oauth/gate/device/poll` every 5s until `status: "ok"`
-5. Extract `mcp_token`, write to `.gate-wallet/auth.json`
+5. Extract `mcp_token`, write to `~/.gate-wallet/auth.json`
 
 ---
 
@@ -321,8 +319,8 @@ When using OpenAPI for the swap flow but needing MCP for signing:
 
 ### Authentication Model
 
-- **MCP**: Gate/Google OAuth → `mcp_token` stored in `.gate-wallet/auth.json` (30-day TTL)
-- **OpenAPI**: AK/SK stored in `.gate-wallet/openapi.json` (permanent, no login needed)
+- **MCP**: Gate/Google OAuth → `mcp_token` stored in `~/.gate-wallet/auth.json` (30-day TTL)
+- **OpenAPI**: AK/SK stored in `~/.gate-wallet/openapi.json` (permanent, no login needed)
 
 ### Custodial Wallet Architecture
 
@@ -496,5 +494,5 @@ openapi-quote --chain bsc --from - --to 0x55d3... --amount 0.1 --wallet 0x...
 - **Preview before execute**: Transfer → `transfer` preview, Swap → `quote`, Approval → `approve_preview`
 - **Approval safety**: Prefer exact-amount approvals over unlimited; only approve trusted contracts; periodically review and revoke unused approvals
 - **Risk audit**: Before trading unfamiliar tokens, run `token-risk` / `openapi-token-risk` and clearly present risk items to user
-- **Credential safety**: `.gate-wallet/` is gitignored — credentials never committed to Git
+- **Credential safety**: `~/.gate-wallet/` stores credentials securely in user home — never commit credentials to Git
 - **Server-side signing**: Users never expose private keys, but must trust Gate custodial service

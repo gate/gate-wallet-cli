@@ -4,8 +4,34 @@
 
 ## 安装
 
+### 方式一：npm 全局安装（推荐）
+
 ```bash
+npm install -g gate-wallet-cli
+```
+
+安装后即可全局使用：
+
+```bash
+gate-wallet login           # Gate OAuth 登录
+gate-wallet balance          # 查询余额
+gate-wallet --help           # 查看所有命令
+```
+
+### 方式二：npx 免安装运行
+
+```bash
+npx gate-wallet-cli login
+npx gate-wallet-cli balance
+```
+
+### 方式三：从源码开发
+
+```bash
+git clone <repo-url>
+cd gate-wallet-cli
 pnpm install
+pnpm cli login               # 开发模式运行
 ```
 
 ## 快速开始
@@ -13,16 +39,16 @@ pnpm install
 ### 单命令模式
 
 ```bash
-pnpm cli login              # Gate OAuth 登录
-pnpm cli login --google     # Google OAuth 登录
-pnpm cli balance            # 查询余额
-pnpm cli gas SOL            # 查询 Gas
+gate-wallet login              # Gate OAuth 登录
+gate-wallet login --google     # Google OAuth 登录
+gate-wallet balance            # 查询余额
+gate-wallet gas SOL            # 查询 Gas
 ```
 
 ### 交互模式
 
 ```bash
-pnpm cli
+gate-wallet
 ```
 
 ```
@@ -34,24 +60,40 @@ gate-wallet> balance
 gate-wallet> exit
 ```
 
-登录成功后 token 自动保存到项目目录（`.gate-wallet/auth.json`），下次启动无需重复登录，30 天有效。
+登录成功后 token 自动保存到 `~/.gate-wallet/auth.json`，下次启动无需重复登录，30 天有效。
 
 ## 配置
 
+所有配置和凭证存储在用户目录下的 `~/.gate-wallet/` 中：
+
+```
+~/.gate-wallet/
+├── auth.json       # OAuth token（自动生成）
+├── openapi.json    # OpenAPI AK/SK 凭证
+└── .env            # 环境变量（可选，如 MCP_URL）
+```
+
+### 环境变量
+
+可通过 `~/.gate-wallet/.env` 配置 MCP Server 地址：
+
+```bash
+# 默认使用生产环境，如需切换：
+MCP_URL=https://wallet-service-mcp-test.gateweb3.cc/mcp
+```
+
+也可通过系统环境变量设置，系统环境变量优先级更高。
+
 ### OAuth 登录凭证
 
-登录后自动保存，无需手动配置：
-
-```
-.gate-wallet/auth.json    # OAuth token（自动生成，已被 .gitignore 忽略）
-```
+登录后自动保存，无需手动配置。
 
 ### OpenAPI AK/SK
 
 CLI 集成了 Gate DEX OpenAPI，用于免登录查询（报价、Gas、排行、安全审计等）。配置文件：
 
 ```
-.gate-wallet/openapi.json  # AK/SK 凭证（已被 .gitignore 忽略）
+~/.gate-wallet/openapi.json  # AK/SK 凭证
 ```
 
 **首次使用 `openapi-*` 命令前需先配置 AK/SK**，否则会提示未配置。前往 [Gate DEX Developer](https://www.gatedex.com/developer) 创建 AK/SK。
@@ -71,16 +113,16 @@ OpenAPI 分为两个通道，可独立配置 AK/SK 和 endpoint：
 
 ```bash
 # 设置 Trade 通道（Swap 交易）
-pnpm cli openapi-config --set-ak YOUR_TRADE_AK --set-sk YOUR_TRADE_SK
+gate-wallet openapi-config --set-ak YOUR_TRADE_AK --set-sk YOUR_TRADE_SK
 
 # 设置 Query 通道（查询行情/代币）
-pnpm cli openapi-config --set-query-ak YOUR_QUERY_AK --set-query-sk YOUR_QUERY_SK
+gate-wallet openapi-config --set-query-ak YOUR_QUERY_AK --set-query-sk YOUR_QUERY_SK
 
 # 查看当前配置
-pnpm cli openapi-config
+gate-wallet openapi-config
 ```
 
-**方式二：直接编辑 `.gate-wallet/openapi.json`**
+**方式二：直接编辑 `~/.gate-wallet/openapi.json`**
 
 ```json
 {
@@ -100,8 +142,6 @@ pnpm cli openapi-config
 - `trade` 和 `query` 可使用相同或不同的 AK/SK
 - 每个通道可选配 `endpoint` 字段，指定独立的 API 地址
 - 未配置 `endpoint` 时默认使用生产环境 `https://openapi.gateweb3.cc/api/v1/dex`
-
-> **注意**：`.gate-wallet/` 目录已在 `.gitignore` 中，凭证不会提交到 Git。
 
 ## 登录 / 登出
 
@@ -354,3 +394,48 @@ gate-wallet> sign-msg aabbccddeeff00112233445566778899 --chain EVM
 - **CLI Framework**: Commander.js
 - **MCP**: `@modelcontextprotocol/sdk`
 - **Auth**: Google / Gate OAuth 2.0
+
+## AI Agent 集成
+
+本项目提供了 `SKILL.md` 文件，包含完整的 Agent 使用指南（命令参考、工作流、安全规则等）。安装后通过 `gate-wallet skill` 命令管理。
+
+### 查看 Skill 信息
+
+```bash
+gate-wallet skill              # 显示使用说明
+gate-wallet skill --path       # 输出 SKILL.md 绝对路径
+gate-wallet skill --print      # 输出 SKILL.md 内容
+```
+
+### 安装到 AI IDE
+
+根据你使用的 IDE / Agent 选择对应方式：
+
+**Cursor IDE**
+
+```bash
+gate-wallet skill --install ~/.cursor/skills/gate-wallet-cli
+```
+
+安装后 Cursor Agent 会自动发现并使用该 Skill。
+
+**Claude Desktop / Windsurf / 其他 AI IDE**
+
+```bash
+# 复制到当前项目目录
+gate-wallet skill --install ./
+
+# 或复制到任意你希望的位置
+gate-wallet skill --install ~/my-skills/gate-wallet
+```
+
+然后在对应 IDE 的配置中指向该文件路径即可。
+
+**直接引用（无需复制）**
+
+也可以让 Agent 直接读取全局安装包中的 SKILL.md：
+
+```bash
+# 获取路径，然后告诉 Agent 读取这个文件
+gate-wallet skill --path
+```
