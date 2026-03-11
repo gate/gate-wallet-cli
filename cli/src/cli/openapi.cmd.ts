@@ -856,54 +856,108 @@ export function registerOpenApiCommands(program: Command) {
         let execSpinner = ora("准备交易...").start();
 
         if (isSolana) {
-          // ═══════ Solana Flow ═══════
-          // MCP wallet.sign_transaction doesn't support OpenAPI-built VersionedTransactions,
-          // so we use MCP's native tx.swap for Solana (which handles signing internally)
+          // ═══════ Solana Flow: OpenAPI quote → build → MCP sign(base58) → OpenAPI submit ═══════
 
-          execSpinner.text = "通过 MCP 执行 Solana swap...";
-          // MCP tx.swap slippage: auto-convert decimal to integer percent if needed (0.05 → 5)
-          const mcpSlippage = slippage < 1 ? String(slippage * 100) : String(slippage);
-          const rawSwapResponse = await mcp.callTool("tx.swap", {
-            from_chain: String(chainId),
-            to_chain: String(chainId),
-            from_token: opts.from,
-            to_token: opts.to,
-            amount: opts.amount,
-            slippage: mcpSlippage,
-            native_in: opts.from === "-" ? "1" : "0",
-            native_out: opts.to === "-" ? "1" : "0",
+          // Solana Step 2: Build (no ERC20 approve needed)
+          execSpinner.text = "获取最新报价...";
+          const solQuoteRes = await client.call<{
+            amount_in: string;
+            amount_out: string;
+            min_amount_out: string;
+            quote_id: string;
+            to_token: { token_symbol: string; decimal: number };
+          }>("trade.swap.quote", {
+            chain_id: chainId,
+            token_in: opts.from,
+            token_out: opts.to,
+            amount_in: opts.amount,
+            user_wallet: wallet,
+            slippage,
+            slippage_type: 1,
+          });
+          if (solQuoteRes.code !== 0) {
+            execSpinner.fail(`报价失败 [${solQuoteRes.code}]: ${solQuoteRes.message}`);
+            return;
+          }
+          const solQ = solQuoteRes.data;
+
+          execSpinner.text = "Build Solana 交易...";
+          const solBuildRes = await client.call<{
+            unsigned_tx: {
+              to: string;
+              data: string;
+              value: string;
+              chain_id: number;
+              gas_limit: number;
+            };
+            order_id: string;
+            amount_in: string;
+            amount_out: string;
+          }>("trade.swap.build", {
+            chain_id: chainId,
+            token_in: opts.from,
+            token_out: opts.to,
+            amount_in: opts.amount,
+            user_wallet: wallet,
+            slippage,
+            slippage_type: 1,
+            quote_id: solQ.quote_id,
           });
 
-          // Parse response - MCP swap may return nested data
-          const swapResult = extractMcpJson<Record<string, unknown>>(
-            rawSwapResponse as Record<string, unknown>,
-          );
-
-          if (!swapResult) {
-            execSpinner.fail("MCP swap 调用失败");
-            console.log(chalk.gray("Raw:"), JSON.stringify(rawSwapResponse, null, 2).slice(0, 800));
+          if (solBuildRes.code !== 0) {
+            execSpinner.fail(`Build 失败 [${solBuildRes.code}]: ${solBuildRes.message}`);
             return;
           }
 
-          // tx.swap response varies; look for common fields
-          const swapOrderId = (swapResult.order_id ?? swapResult.orderId ?? "") as string;
-          const swapTxHash = (swapResult.tx_hash ?? swapResult.hash ?? swapResult.txHash ?? "") as string;
-          const swapStatus = (swapResult.status ?? "") as string;
+          const solUtx = solBuildRes.data.unsigned_tx;
+          const solOrderId = solBuildRes.data.order_id;
+          const unsignedTxBase64 = solUtx.data;
 
-          if (swapTxHash) {
-            execSpinner.succeed(`交易已提交: ${swapTxHash}`);
-          } else if (swapOrderId) {
-            execSpinner.succeed(`Swap 已提交 (order: ${swapOrderId})`);
-          } else {
-            execSpinner.succeed("Swap 已执行");
-            console.log(chalk.gray(JSON.stringify(swapResult, null, 2).slice(0, 500)));
+          // Solana Step 3: Sign via MCP wallet.sign_transaction
+          // MCP expects base58-encoded VersionedTransaction for SOL
+          execSpinner.text = "签名 Solana 交易...";
+          const unsignedTxBase58 = base58Encode(Buffer.from(unsignedTxBase64, "base64"));
+
+          const solSignRaw = await mcp.callTool("wallet.sign_transaction", {
+            chain: "SOL",
+            raw_tx: unsignedTxBase58,
+          });
+          const solSignResult = extractMcpJson<{
+            signedTransaction?: string;
+            signature?: string;
+          }>(solSignRaw as Record<string, unknown>);
+
+          // signedTransaction is base58-encoded signed VersionedTransaction
+          const signedSolTx = solSignResult?.signedTransaction ?? "";
+
+          if (!signedSolTx) {
+            execSpinner.fail("Solana 签名失败");
+            console.log(chalk.gray("Raw:"), JSON.stringify(solSignRaw, null, 2).slice(0, 800));
+            return;
+          }
+          execSpinner.succeed("签名成功");
+
+          // Solana Step 4: Submit - signed_tx_string for Solana is JSON array of base58 strings
+          execSpinner = ora("提交 Solana 交易...").start();
+
+          const solSubmitRes = await client.call<{
+            order_id: string;
+            tx_hash: string;
+          }>("trade.swap.submit", {
+            order_id: solOrderId,
+            signed_tx_string: JSON.stringify([signedSolTx]),
+          });
+
+          if (solSubmitRes.code !== 0) {
+            execSpinner.fail(`Submit 失败 [${solSubmitRes.code}]: ${solSubmitRes.message}`);
+            return;
           }
 
-          if (swapOrderId && !swapStatus) {
-            await pollSwapStatus(client, execSpinner, chainId, swapOrderId, swapTxHash, q.to_token);
-          } else if (swapTxHash) {
-            console.log(chalk.cyan(`\nExplorer: ${getExplorerTxUrl(chainId, swapTxHash)}`));
-          }
+          const solTxHash = solSubmitRes.data.tx_hash;
+          execSpinner.succeed(`交易已提交: ${solTxHash}`);
+
+          // Solana Step 5: Poll status
+          await pollSwapStatus(client, execSpinner, chainId, solOrderId, solTxHash, solQ.to_token);
 
         } else {
           // ═══════ EVM Flow ═══════

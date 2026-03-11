@@ -234,7 +234,7 @@ Solana params: `owner`, `spender`(=delegate), `amount`, `token_mint`, `token_dec
 
 `openapi-swap` extra options: `--slippage <pct>` (default 0.03) · `-y, --yes` (skip confirmation)
 
-> **Agent MUST use `openapi-swap` for hybrid mode** — never manually call OpenAPI APIs + MCP signing via inline scripts. The CLI handles RLP encoding, EIP-1559 formatting, gas buffer (1.2x), nonce fetching, and `signed_tx_string` JSON array formatting internally.
+> **Agent MUST use `openapi-swap` for hybrid mode** — never manually call OpenAPI APIs + MCP signing via inline scripts. The CLI handles RLP encoding, EIP-1559 formatting, gas buffer (1.2x), nonce fetching, Solana base58 encoding, and `signed_tx_string` JSON array formatting internally. Supports both EVM chains and Solana.
 
 ### Market Data & Token Queries
 
@@ -412,16 +412,29 @@ Use OpenAPI for quote/build/submit and MCP for custodial signing. This is the pr
 **CLI command** (recommended):
 
 ```bash
-gate-wallet openapi-swap --chain ARB --from - --to 0xFd08...Cbb9 --amount 0.0001 --slippage 0.03
+# EVM example (Arbitrum)
+gate-wallet openapi-swap --chain ARB --from - --to <token_contract> --amount 0.0001 --slippage 0.03
+
+# Solana example (SOL → SPL token)
+gate-wallet openapi-swap --chain SOL --from - --to <token_mint> --amount 0.0001 --slippage 0.05
+
+# Solana reverse (SPL token → SOL)
+gate-wallet openapi-swap --chain SOL --from <token_mint> --to - --amount 0.002 --slippage 0.05
 ```
 
 The command handles the entire flow automatically:
 
-1. Connects MCP, gets wallet address
+1. Connects MCP, gets wallet address (EVM or SOL based on `--chain`)
 2. Calls OpenAPI `trade.swap.quote`, displays quote for user confirmation
-3. **ERC20 approve** (auto): if `token_in` is not native, checks on-chain allowance → if insufficient, calls `trade.swap.approve_transaction` → signs approve tx via MCP → broadcasts via RPC → waits for on-chain confirmation
-4. After approve (if needed): re-quotes to get fresh `quote_id` → build → get nonce/gasPrice (with 20% buffer) → RLP encode EIP-1559 tx → MCP sign → OpenAPI submit → poll status
-5. All in a single process, no timeout issues
+3. **Chain-specific execution**:
+   - **EVM chains** (ETH/ARB/BSC/BASE etc.):
+     a. ERC20 approve (auto): if `token_in` is not native, checks on-chain allowance → if insufficient, calls `trade.swap.approve_transaction` → signs approve tx via MCP → broadcasts via RPC → waits for on-chain confirmation
+     b. Re-quotes to get fresh `quote_id` → build → get nonce/gasPrice (with 20% buffer) → RLP encode EIP-1559 tx → MCP sign → OpenAPI submit → poll status
+   - **Solana** (`--chain SOL`):
+     a. Re-quotes → build → get base64 VersionedTransaction
+     b. Convert base64 → base58 → MCP `wallet.sign_transaction(chain: "SOL")` → get base58 signedTransaction
+     c. OpenAPI submit (base58 in JSON array) → poll status
+4. All in a single process, no timeout issues
 
 **Parameters**:
 
@@ -465,10 +478,11 @@ The command handles the entire flow automatically:
 13. **EVM native transfer must set `token = "ETH"`**: When calling `tx.transfer_preview` without `--token` on EVM chains (ARB/BSC/BASE/OP etc.), you MUST explicitly pass `token = "ETH"` (or `"NATIVE"`) to indicate native token. Otherwise the MCP server defaults to transferring USDT instead of native ETH. The CLI `send`/`transfer` commands now handle this automatically.
 14. **`tokens` / `wallet.get_token_list` may not show L2 balances**: The wallet API may not index assets on L2 chains (e.g. ETH/USDT on Arbitrum). To verify L2 balances, use `rpc --chain <chain>` with `eth_getBalance` (native) or `eth_call` with ERC20 `balanceOf` (0x70a08231 + padded address).
 15. **`token` param required for correct display label**: `tx.transfer_preview` defaults display to "USDT" if `token` is not passed. The CLI `send` command now auto-resolves `token` symbol via `token_list_swap_tokens`. For `transfer` (preview-only), pass `--token-symbol <sym>` explicitly if using a non-native token.
-16. **Hybrid Swap use CLI command**: Always use `openapi-swap` CLI command for hybrid swap. Never write inline Python/Node scripts — the CLI handles RLP encoding, gas buffer, signing format, and order_id timeout internally.
+16. **Hybrid Swap use CLI command**: Always use `openapi-swap` CLI command for hybrid swap (supports EVM + Solana). Never write inline Python/Node scripts — the CLI handles RLP encoding (EVM), base58 encoding (Solana), gas buffer, signing format, and order_id timeout internally.
 17. **Gas buffer for L2 chains**: Always multiply `eth_gasPrice` by 1.2 (20%) for `maxFeePerGas`. L2 baseFee fluctuates and without buffer the tx fails with "max fee per gas less than block base fee".
 18. **OpenAPI `signed_tx_string` must be JSON array**: Use `json.dumps(["0x02f8..."])` — not raw hex string. Otherwise submit returns error 50005.
 19. **OpenAPI numeric params**: `chain_id`, `slippage`, `slippage_type` must be numeric types (int/float), not strings. Strings cause "cannot unmarshal string into Go struct field" errors.
+20. **Solana MCP signing format**: `wallet.sign_transaction(chain: "SOL")` expects **base58-encoded** unsigned tx (`raw_tx`), and returns base58-encoded `signedTransaction`. OpenAPI build returns base64 — the CLI converts base64→base58 automatically. OpenAPI submit for Solana expects `signed_tx_string` as JSON array of base58 strings (`'["5K8j..."]'`).
 
 ---
 
