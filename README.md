@@ -42,10 +42,11 @@ pnpm cli swap --from-chain 1 --from - --to 0xdAC17F958D2ee523a2206206994597C13D8
 安装到 Cursor IDE：
 
 ```bash
-# 方式一：通过 CLI 命令安装
+# 一条命令安装两个 Skill（MCP + OpenAPI）
 cd cli && pnpm cli skill --install ~/.cursor/skills/gate-wallet-cli
-
-# 方式二：手动复制
-cp skills/gate-wallet-cli/SKILL.md ~/.cursor/skills/gate-wallet-cli/
-cp -r skills/gate-dex-trade ~/.cursor/skills/
 ```
+
+安装后自动生成：
+
+- `~/.cursor/skills/gate-wallet-cli/SKILL.md`
+- `~/.cursor/skills/gate-dex-trade/SKILL.md`

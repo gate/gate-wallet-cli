@@ -20,7 +20,16 @@ function resolveSkillFile(): string {
   return inPkg;
 }
 
+function resolveOpenApiSkillFile(): string | null {
+  const inPkg = join(PKG_ROOT, "skills", "gate-dex-trade", "SKILL.md");
+  if (existsSync(inPkg)) return inPkg;
+  const inRepo = join(PKG_ROOT, "..", "skills", "gate-dex-trade", "SKILL.md");
+  if (existsSync(inRepo)) return inRepo;
+  return null;
+}
+
 const SKILL_FILE = resolveSkillFile();
+const OPENAPI_SKILL_FILE = resolveOpenApiSkillFile();
 
 function loadEnvFile(filePath: string): void {
   try {
@@ -90,6 +99,14 @@ program
       const dest = join(targetDir, "SKILL.md");
       copyFileSync(SKILL_FILE, dest);
       console.log(chalk.green(`✔ Installed to ${dest}`));
+
+      if (OPENAPI_SKILL_FILE) {
+        const parentDir = join(targetDir, "..", "gate-dex-trade");
+        mkdirSync(parentDir, { recursive: true });
+        const openApiDest = join(parentDir, "SKILL.md");
+        copyFileSync(OPENAPI_SKILL_FILE, openApiDest);
+        console.log(chalk.green(`✔ Installed OpenAPI skill to ${openApiDest}`));
+      }
       return;
     }
 
