@@ -90,39 +90,42 @@ gate-wallet> exit
 
 ### Gate DEX OpenAPI（免登录 Swap 交易）
 
-Gate DEX OpenAPI 通过 AK/SK 认证，支持免登录的 Swap 交易功能。由独立 Skill（`skills/gate-dex-trade`）提供。
+Gate DEX OpenAPI 通过 AK/SK 认证，支持免登录的 Swap 交易功能。同时支持 **Hybrid Swap** 模式：OpenAPI 负责报价/构建/提交，MCP 负责托管签名，无需用户持有私钥。
 
-**与 MCP Swap 的关系**：两者功能重叠，区别在于 MCP 使用托管签名（用户无需私钥），OpenAPI 使用自持私钥签名（更灵活）。用户可通过关键词指定通道（"用 openapi" / "用 MCP"），未指定时 Agent 根据登录状态自动选择。
+**与 MCP Swap 的关系**：
 
-配置文件路径：`~/.gate-dex-openapi/config.json`
+| 对比     | MCP Swap           | OpenAPI Swap（Hybrid 模式）                      |
+| -------- | ------------------ | ------------------------------------------------ |
+| 认证     | OAuth 登录         | AK/SK + OAuth 登录                               |
+| 签名     | MCP 服务端托管签名 | OpenAPI 构建交易 + MCP 托管签名                  |
+| 额外功能 | —                  | Gas 查询、链列表、自定义手续费接收地址、MEV 保护 |
+| 触发方式 | 默认 / "用 MCP"    | "用 openapi" / `openapi-swap` 命令               |
 
-#### 创建配置
+#### 配置管理（推荐方式）
 
 ```bash
-# 1. 创建目录
-mkdir -p ~/.gate-dex-openapi && chmod 700 ~/.gate-dex-openapi
+# 通过 CLI 命令设置 AK/SK（自动验证凭证）
+gate-wallet openapi-config --set-ak YOUR_AK --set-sk YOUR_SK
 
-# 2. 写入配置（使用默认公共凭证）
-cat > ~/.gate-dex-openapi/config.json << 'EOF'
-{
-  "api_key": "YOUR_API_KEY",
-  "secret_key": "YOUR_SECRET_KEY",
-  "default_slippage": 0.03,
-  "default_slippage_type": 1
-}
-EOF
-
-# 3. 设置文件权限（仅所有者可读写）
-chmod 600 ~/.gate-dex-openapi/config.json
+# 查看当前配置（SK 自动脱敏）
+gate-wallet openapi-config
 ```
 
-#### 配置文件格式
+#### 手动配置
+
+配置文件支持两个路径（优先读取前者）：
+
+| 路径                              | 格式       | 说明                   |
+| --------------------------------- | ---------- | ---------------------- |
+| `~/.gate-dex-openapi/config.json` | 扁平格式   | Skill / Agent 共享使用 |
+| `~/.gate-wallet/openapi.json`     | 双通道格式 | CLI 内部使用           |
+
+扁平格式（`~/.gate-dex-openapi/config.json`）：
 
 ```json
 {
-  "api_key": "你的 API Key",
-  "secret_key": "你的 Secret Key",
-  "default_chain_id": 1,
+  "api_key": "YOUR_API_KEY",
+  "secret_key": "YOUR_SECRET_KEY",
   "default_slippage": 0.03,
   "default_slippage_type": 1
 }
@@ -132,7 +135,6 @@ chmod 600 ~/.gate-dex-openapi/config.json
 | --------------------- | ------ | ---- | ------------------------------ |
 | api_key               | string | 是   | API Key                        |
 | secret_key            | string | 是   | Secret Key                     |
-| default_chain_id      | int    | 否   | 默认链 ID，省略时每次询问用户  |
 | default_slippage      | float  | 否   | 默认滑点，0.03 = 3%            |
 | default_slippage_type | int    | 否   | 1 = 百分比模式，2 = 固定值模式 |
 
@@ -208,6 +210,54 @@ MCP 通道（需登录，托管签名）：
 | `swap-history --limit 3`                                 | Swap / Bridge 历史（支持分页）      |
 
 OpenAPI 通道（免登录，自持私钥签名）也支持完整 Swap 流程，详见 [gate-dex-trade Skill](../skills/gate-dex-trade/SKILL.md)。用户说 "用 openapi swap" 时走 OpenAPI，否则默认走 MCP。
+
+### OpenAPI 通道命令
+
+> 所有 `openapi-*` 命令通过 AK/SK 认证直接调用 Gate DEX OpenAPI，无需 MCP 登录（Hybrid Swap 除外）。
+
+#### 配置管理
+
+| 命令                                         | 说明                               |
+| -------------------------------------------- | ---------------------------------- |
+| `openapi-config`                             | 查看当前 AK/SK 配置（SK 自动脱敏） |
+| `openapi-config --set-ak <ak> --set-sk <sk>` | 设置 Trade 通道 AK/SK 并自动验证   |
+
+#### Swap 交易
+
+| 命令                                                                        | 说明                                               |
+| --------------------------------------------------------------------------- | -------------------------------------------------- |
+| `openapi-swap --chain ARB --from - --to 0xFd08... --amount 0.01`            | **Hybrid Swap**（OpenAPI 报价构建 + MCP 托管签名） |
+| `openapi-chains`                                                            | 查询支持的链列表                                   |
+| `openapi-gas --chain eth`                                                   | 查询指定链 Gas 价格                                |
+| `openapi-quote --chain eth --from - --to 0x... --amount 0.1 --wallet 0x...` | 获取 Swap 报价                                     |
+| `openapi-build --chain eth --from - --to 0x... --amount 0.1 --wallet 0x...` | 构建未签名交易（返回 unsigned_tx + order_id）      |
+| `openapi-approve --wallet 0x... --amount 0.1 --quote-id <id>`               | 获取 ERC20 approve calldata                        |
+| `openapi-submit --order-id <id> --signed-tx '["0x02f8..."]'`                | 提交已签名交易                                     |
+| `openapi-status --chain eth --order-id <id>`                                | 查询 Swap 订单状态                                 |
+| `openapi-history --wallet 0x...`                                            | 查询 Swap 历史订单                                 |
+
+#### 代币查询
+
+| 命令                                                                       | 说明                 |
+| -------------------------------------------------------------------------- | -------------------- |
+| `openapi-swap-tokens --chain eth --search USDT`                            | 查询链上可 Swap 代币 |
+| `openapi-token-rank --chain eth --limit 10`                                | 代币涨跌幅排行榜     |
+| `openapi-new-tokens --start 2026-03-08T00:00:00Z --chain eth`              | 按创建时间筛选新币   |
+| `openapi-token-risk --chain eth --address 0x...`                           | 代币安全审计         |
+| `openapi-bridge-tokens --src-chain eth --src-token 0x... --dest-chain bsc` | 查询跨链桥目标代币   |
+
+#### 市场行情
+
+| 命令                                            | 说明                       |
+| ----------------------------------------------- | -------------------------- |
+| `openapi-volume --chain eth --address 0x...`    | 交易量统计（5m/1h/4h/24h） |
+| `openapi-liquidity --chain eth --address 0x...` | 流动性池事件               |
+
+#### 通用调用
+
+| 命令                           | 说明                        |
+| ------------------------------ | --------------------------- |
+| `openapi-call <action> [json]` | 直接调用任意 OpenAPI action |
 
 ### 行情数据
 
@@ -318,6 +368,59 @@ gate-wallet> swap --from-chain 501 --to-chain 501 --from - --to EPjFWdd5AufqSSqe
 }
 ```
 
+### Hybrid Swap (OpenAPI + MCP 托管签名)
+
+使用 OpenAPI 通道报价构建 + MCP 服务端签名，一条命令完成：
+
+```
+gate-wallet> openapi-swap --chain ARB --from - --to 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9 --amount 0.00001
+✔ 钱包: 0xdb918f36a1c282a042758b544c64ae5a1d5767a2
+
+========== Swap 报价 ==========
+  卖出: 0.00001 WETH
+  买入: ≈ 0.02024 USDT
+  最少: 0.019632 USDT
+  滑点: 3.0%
+  路由: 0x(100%)
+===============================
+
+确认执行 Swap? (y/N): y
+✔ 交易已提交: 0x8a03c00a...
+✔ Swap 成功! 收到 0.020253 USDT
+```
+
+流程内部步骤（自动完成）：
+
+| 步骤 | 通道    | 操作                                        |
+| ---- | ------- | ------------------------------------------- |
+| 1    | MCP     | 获取钱包地址（`wallet.get_addresses`）      |
+| 2    | OpenAPI | 获取报价（`trade.swap.quote`）              |
+| 3    | OpenAPI | 构建交易（`trade.swap.build`）              |
+| 4    | MCP RPC | 获取 nonce + gasPrice（含 20% buffer）      |
+| 5    | 本地    | RLP 编码 EIP-1559 unsigned tx               |
+| 6    | MCP     | 托管签名（`wallet.sign_transaction`）       |
+| 7    | OpenAPI | 提交交易（`trade.swap.submit`）             |
+| 8    | OpenAPI | 轮询状态（`trade.swap.status`，每 5s 一次） |
+
+### OpenAPI 查询示例
+
+```
+# 查询支持的链
+gate-wallet> openapi-chains
+
+# 查询 Arbitrum Gas 价格
+gate-wallet> openapi-gas --chain arb
+
+# 查询 ETH 链上 USDT 安全审计
+gate-wallet> openapi-token-risk --chain eth --address 0xdAC17F958D2ee523a2206206994597C13D831ec7
+
+# 代币涨跌幅排行榜
+gate-wallet> openapi-token-rank --chain eth --limit 5
+
+# 直接调用任意 OpenAPI action
+gate-wallet> openapi-call trade.swap.chain '{}'
+```
+
 ### 签名消息
 
 ```
@@ -357,10 +460,32 @@ gate-wallet> sign-msg aabbccddeeff00112233445566778899 --chain EVM
 
 ## 技术栈
 
-- **Runtime**: Node.js + TypeScript
+- **Runtime**: Node.js >= 18 + TypeScript
 - **CLI Framework**: Commander.js
-- **MCP**: `@modelcontextprotocol/sdk`
+- **MCP**: `@modelcontextprotocol/sdk` (服务端托管签名)
 - **Auth**: Google / Gate OAuth 2.0
+- **OpenAPI**: HMAC-SHA256 签名，支持 Trade / Query 双通道
+
+### 架构概览
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Gate Wallet CLI                       │
+├──────────────────────┬──────────────────────────────────┤
+│     MCP 通道         │        OpenAPI 通道              │
+│  (OAuth + 托管签名)  │     (AK/SK + HMAC 签名)         │
+│                      │                                  │
+│  balance / address   │  openapi-chains / openapi-gas    │
+│  tokens / send       │  openapi-quote / openapi-build   │
+│  swap / quote        │  openapi-submit / openapi-status │
+│  transfer / gas      │  openapi-token-rank / risk       │
+│  kline / liquidity   │  openapi-swap-tokens / volume    │
+│                      │                                  │
+│        └──── Hybrid Swap (openapi-swap) ────┘           │
+│         OpenAPI: quote/build/submit                     │
+│         MCP: address + RPC + sign                       │
+└─────────────────────────────────────────────────────────┘
+```
 
 ## AI Agent 集成
 
