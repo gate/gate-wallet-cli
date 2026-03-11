@@ -22,10 +22,23 @@ This project has two channels that **overlap on Swap functionality**. Agent MUST
 
 **Rule 1 — Explicit user request (highest priority)**
 
-| User says                                                                     | Route to                                                                                    | Reason                        |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------- |
-| "用 openapi" / "openapi swap" / "AK/SK" / "直连 API" / "DEX API" / "自己签名" | **OpenAPI channel** → read and follow [gate-dex-trade/SKILL.md](../gate-dex-trade/SKILL.md) | User explicitly chose OpenAPI |
-| "用 MCP" / "用钱包" / "托管签名" / "gate-wallet swap"                         | **MCP channel** → continue with this SKILL                                                  | User explicitly chose MCP     |
+| User says                                                        | Route to                                                                                    | Reason                                     |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| "用 openapi" / "openapi swap" / "AK/SK" / "直连 API" / "DEX API" | **Hybrid or OpenAPI** — see Rule 1a below                                                   | User explicitly chose OpenAPI              |
+| "自己签名" / "用私钥签"                                          | **OpenAPI channel** → read and follow [gate-dex-trade/SKILL.md](../gate-dex-trade/SKILL.md) | User explicitly wants self-custody signing |
+| "用 MCP" / "用钱包" / "托管签名" / "gate-wallet swap"            | **MCP channel** → continue with this SKILL                                                  | User explicitly chose MCP                  |
+
+**Rule 1a — OpenAPI request sub-routing (MUST check login status)**
+
+When user requests OpenAPI, Agent MUST check whether the user is logged in (`~/.gate-wallet/auth.json` exists and valid):
+
+| Condition                                 | Route to                                                                    | Command                                                                 | Reason                                                                                               |
+| ----------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| User is logged in (has MCP token)         | **Hybrid mode** → `openapi-swap` CLI command                                | `gate-wallet openapi-swap --chain ... --from ... --to ... --amount ...` | Uses OpenAPI for quote/build/submit + MCP for custodial signing. One CLI command handles everything. |
+| User is NOT logged in but has private key | **OpenAPI channel** → [gate-dex-trade/SKILL.md](../gate-dex-trade/SKILL.md) | Agent follows gate-dex-trade Skill                                      | Self-custody signing with user's private key                                                         |
+| User is NOT logged in and no private key  | **Hybrid mode** (prompt login first)                                        | `gate-wallet login` then `gate-wallet openapi-swap ...`                 | Login to enable MCP signing, then use hybrid flow                                                    |
+
+> **Key insight**: "用 openapi" does NOT mean "用私钥自己签名". Most custodial wallet users want OpenAPI's quote/build advantages (custom fee_recipient, gas price queries, etc.) while still using MCP's convenient custodial signing. The `openapi-swap` hybrid command is designed exactly for this.
 
 **Rule 2 — MCP-only operations (no overlap, always MCP)**
 
@@ -37,15 +50,15 @@ These features exist ONLY in MCP. No routing decision needed:
 
 When user requests swap/quote/swap-detail/swap-history WITHOUT specifying a channel:
 
-| Condition                                                                                                     | Preferred channel            | Reason                                                  |
-| ------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------- |
-| User is logged in (`~/.gate-wallet/auth.json` exists and valid)                                               | **MCP**                      | Simpler flow, no private key needed, one-shot swap      |
-| User is NOT logged in but `~/.gate-dex-openapi/config.json` exists                                            | **OpenAPI**                  | Already has AK/SK configured, can proceed without login |
-| User is NOT logged in and no OpenAPI config exists                                                            | **MCP** (prompt login first) | MCP is the default path, guide user to login            |
-| User mentions private key / self-custody / fine-grained control                                               | **OpenAPI**                  | OpenAPI allows step-by-step control and self-signing    |
-| User needs features only in OpenAPI (custom fee_recipient, MEV protection, gas price query, chain list query) | **OpenAPI**                  | These features don't exist in MCP                       |
+| Condition                                                                                                     | Preferred channel                       | Reason                                                  |
+| ------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------- |
+| User is logged in (`~/.gate-wallet/auth.json` exists and valid)                                               | **MCP** (`gate-wallet swap`)            | Simpler flow, no private key needed, one-shot swap      |
+| User is NOT logged in but `~/.gate-dex-openapi/config.json` exists                                            | **OpenAPI**                             | Already has AK/SK configured, can proceed without login |
+| User is NOT logged in and no OpenAPI config exists                                                            | **MCP** (prompt login first)            | MCP is the default path, guide user to login            |
+| User mentions private key / self-custody / fine-grained control                                               | **OpenAPI**                             | OpenAPI allows step-by-step control and self-signing    |
+| User needs features only in OpenAPI (custom fee_recipient, MEV protection, gas price query, chain list query) | **Hybrid** (`gate-wallet openapi-swap`) | OpenAPI features + MCP custodial signing                |
 
-> **Hybrid mode**: When OpenAPI is chosen but the user has no local private key (custodial wallet), use `openapi-swap` CLI command for **Hybrid Swap** (OpenAPI for quote/build/submit + MCP for signing). See "Hybrid Swap" in Typical Workflows section.
+> **Hybrid mode priority**: When the user needs OpenAPI features but is logged in (has MCP token), **always use `gate-wallet openapi-swap`** — never construct inline Python/Node scripts to manually call OpenAPI quote → build → sign. The CLI command handles RLP encoding, gas buffer, signing format, and timeout internally.
 
 ### Overlap Reference
 
@@ -209,14 +222,19 @@ Solana params: `owner`, `spender`(=delegate), `amount`, `token_mint`, `token_dec
 
 ### Swap
 
-| Command                                                                            | Description                             |
-| ---------------------------------------------------------------------------------- | --------------------------------------- |
-| `quote --from-chain <id> --to-chain <id> --from <token> --to <token> --amount <n>` | Get swap quote                          |
-| `swap --from-chain <id> --to-chain <id> --from <token> --to <token> --amount <n>`  | One-shot swap (Quote→Build→Sign→Submit) |
-| `swap-detail <order_id>`                                                           | Swap order details                      |
-| `swap-history [--page <n>] [--limit <n>]`                                          | Swap/bridge history                     |
+| Command                                                                            | Description                                            |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `quote --from-chain <id> --to-chain <id> --from <token> --to <token> --amount <n>` | Get swap quote (MCP)                                   |
+| `swap --from-chain <id> --to-chain <id> --from <token> --to <token> --amount <n>`  | One-shot swap via MCP (Quote→Build→Sign→Submit)        |
+| `openapi-swap --chain <chain> --from <token> --to <token> --amount <n>`            | **Hybrid swap: OpenAPI quote/build/submit + MCP sign** |
+| `swap-detail <order_id>`                                                           | Swap order details                                     |
+| `swap-history [--page <n>] [--limit <n>]`                                          | Swap/bridge history                                    |
 
-Extra options: `--slippage <pct>` · `--native-in <0|1>` · `--native-out <0|1>` · `--wallet <addr>` · `--to-wallet <addr>`
+`swap` extra options: `--slippage <pct>` · `--native-in <0|1>` · `--native-out <0|1>` · `--wallet <addr>` · `--to-wallet <addr>`
+
+`openapi-swap` extra options: `--slippage <pct>` (default 0.03) · `-y, --yes` (skip confirmation)
+
+> **Agent MUST use `openapi-swap` for hybrid mode** — never manually call OpenAPI APIs + MCP signing via inline scripts. The CLI handles RLP encoding, EIP-1559 formatting, gas buffer (1.2x), nonce fetching, and `signed_tx_string` JSON array formatting internally.
 
 ### Market Data & Token Queries
 
