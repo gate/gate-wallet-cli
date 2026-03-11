@@ -419,8 +419,9 @@ The command handles the entire flow automatically:
 
 1. Connects MCP, gets wallet address
 2. Calls OpenAPI `trade.swap.quote`, displays quote for user confirmation
-3. After user confirms: build → get nonce/gasPrice (with 20% buffer) → RLP encode EIP-1559 tx → MCP sign → OpenAPI submit → poll status
-4. All in a single process, no timeout issues
+3. **ERC20 approve** (auto): if `token_in` is not native, checks on-chain allowance → if insufficient, calls `trade.swap.approve_transaction` → signs approve tx via MCP → broadcasts via RPC → waits for on-chain confirmation
+4. After approve (if needed): re-quotes to get fresh `quote_id` → build → get nonce/gasPrice (with 20% buffer) → RLP encode EIP-1559 tx → MCP sign → OpenAPI submit → poll status
+5. All in a single process, no timeout issues
 
 **Parameters**:
 
@@ -440,9 +441,9 @@ The command handles the entire flow automatically:
 
 **Key points for Agent**:
 
-1. **Use the CLI command** — never construct inline Python/Node scripts for hybrid swap. The CLI handles RLP encoding, gas buffer, signing format, and timeout internally.
+1. **Use the CLI command** — never construct inline Python/Node scripts for hybrid swap. The CLI handles RLP encoding, gas buffer, signing format, ERC20 approve, and timeout internally.
 2. **Quote separately if needed**: Without `-y`, the command shows the quote and waits for user confirmation before executing.
-3. **ERC20→ERC20 swaps**: May require token approval. If build returns error 31501, check allowance first.
+3. **ERC20 approve handled automatically**: The CLI detects if `token_in` is an ERC20, checks on-chain allowance, and executes approve + wait confirmation before swap. No manual approve step needed.
 4. **Credential reading**: The command reads `~/.gate-dex-openapi/config.json` (OpenAPI) and `~/.gate-wallet/auth.json` (MCP) automatically.
 
 ---
