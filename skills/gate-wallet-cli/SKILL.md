@@ -1,47 +1,69 @@
 ---
 name: gate-wallet-cli
-version: "1.5.0"
-updated: "2026-03-10"
-description: "Gate Web3 wallet CLI with dual-channel architecture: MCP protocol (OAuth + custodial signing) for full wallet operations, and Gate DEX OpenAPI (AK/SK auth) for login-free queries. Use when the user asks about wallet balance, token transfers, swaps, market data, token security, or approvals on supported chains (ETH, SOL, BSC, Base, ARB, etc.)."
+version: "1.7.0"
+updated: "2026-03-11"
+description: "Gate Web3 wallet CLI with dual-channel support: MCP (OAuth + custodial signing) and OpenAPI (AK/SK + self-custody). Use when the user asks about wallet balance, token transfers, swaps, market data, token security, or approvals on supported chains (ETH, SOL, BSC, Base, ARB, etc.)."
 ---
 
 # Gate Wallet CLI
 
-Dual-channel Gate Web3 wallet CLI:
+Gate Web3 wallet CLI with dual-channel support:
 
-- **MCP channel**: OAuth login → server-side custodial signing → full wallet features (balance / transfer / swap / approve)
-- **OpenAPI channel**: AK/SK auth → login-free queries (quotes / gas / rankings / audits / market data)
+- **MCP channel**: OAuth login → server-side custodial signing → full wallet features (balance / transfer / swap / approve / market queries)
+- **OpenAPI channel** (login-free, self-custody): AK/SK auth → user-side signing → DEX swap trading. See [gate-dex-trade/SKILL.md](../gate-dex-trade/SKILL.md)
+
+---
+
+## Channel Routing (MUST evaluate first)
+
+This project has two channels that **overlap on Swap functionality**. Agent MUST evaluate which channel to use **before** executing any swap-related operation.
+
+### Routing Rules (in priority order)
+
+**Rule 1 — Explicit user request (highest priority)**
+
+| User says | Route to | Reason |
+| --- | --- | --- |
+| "用 openapi" / "openapi swap" / "AK/SK" / "直连 API" / "DEX API" / "自己签名" | **OpenAPI channel** → read and follow [gate-dex-trade/SKILL.md](../gate-dex-trade/SKILL.md) | User explicitly chose OpenAPI |
+| "用 MCP" / "用钱包" / "托管签名" / "gate-wallet swap" | **MCP channel** → continue with this SKILL | User explicitly chose MCP |
+
+**Rule 2 — MCP-only operations (no overlap, always MCP)**
+
+These features exist ONLY in MCP. No routing decision needed:
+
+`balance` · `address` · `tokens` · `send` / `transfer` · `approve` / `revoke` · `gas` · `token-info` · `token-risk` · `token-rank` · `kline` · `liquidity` · `tx-stats` · `swap-tokens` · `bridge-tokens` · `new-tokens` · `rpc` · `chain-config` · `tx-detail` · `tx-history`
+
+**Rule 3 — Overlapping Swap operations (agent decides)**
+
+When user requests swap/quote/swap-detail/swap-history WITHOUT specifying a channel:
+
+| Condition | Preferred channel | Reason |
+| --- | --- | --- |
+| User is logged in (`~/.gate-wallet/auth.json` exists and valid) | **MCP** | Simpler flow, no private key needed, one-shot swap |
+| User is NOT logged in but `~/.gate-dex-openapi/config.json` exists | **OpenAPI** | Already has AK/SK configured, can proceed without login |
+| User is NOT logged in and no OpenAPI config exists | **MCP** (prompt login first) | MCP is the default path, guide user to login |
+| User mentions private key / self-custody / fine-grained control | **OpenAPI** | OpenAPI allows step-by-step control and self-signing |
+| User needs features only in OpenAPI (custom fee_recipient, MEV protection, gas price query, chain list query) | **OpenAPI** | These features don't exist in MCP |
+
+### Overlap Reference
+
+| Function | MCP Tool | OpenAPI Actions |
+| --- | --- | --- |
+| Swap quote | `tx.quote` | `trade.swap.quote` |
+| Execute swap | `tx.swap` (one-shot) | `quote` → `approve` → `build` → `submit` |
+| Swap order detail | `tx.swap_detail` | `trade.swap.status` |
+| Swap history | `tx.history_list` | `trade.swap.history` |
 
 ## Quick Start
 
 ```bash
-# MCP channel (requires login)
 gate-wallet login
 gate-wallet balance
 gate-wallet send --chain ETH --to 0x... --amount 0.01
 
-# OpenAPI channel (no login required)
-gate-wallet openapi-token-rank --chain eth --limit 10
-gate-wallet openapi-volume --chain eth --address 0x...
-gate-wallet openapi-quote --chain eth --from - --to 0xdAC1... --amount 0.01 --wallet 0x...
-
 # Interactive REPL mode
 gate-wallet
 ```
-
-## Channel Selection Strategy
-
-Agent should automatically select the appropriate channel:
-
-| Scenario                                                      | Channel         | Reason                              |
-| ------------------------------------------------------------- | --------------- | ----------------------------------- |
-| Wallet operations (balance / address / transfer / sign)       | MCP             | OpenAPI does not support wallet ops |
-| Full swap (with signing)                                      | MCP `swap`      | One-shot Quote→Build→Sign→Submit    |
-| Read-only queries (quotes / gas / rankings / audits / market) | OpenAPI first   | No login needed, lighter weight     |
-| OpenAPI fails or unavailable                                  | Fallback to MCP | MCP also supports query tools       |
-| Token approval (approve / revoke)                             | MCP             | Requires signing                    |
-
-**Core principle**: Use OpenAPI for any login-free query. Use MCP for anything involving wallet, signing, or fund movements.
 
 ---
 
@@ -49,10 +71,9 @@ Agent should automatically select the appropriate channel:
 
 All credentials are stored in `~/.gate-wallet/` (user home directory):
 
-| File                          | Content                        | Created by                                                           |
-| ----------------------------- | ------------------------------ | -------------------------------------------------------------------- |
-| `~/.gate-wallet/auth.json`    | OAuth `mcp_token` (30-day TTL) | `login` command (auto)                                               |
-| `~/.gate-wallet/openapi.json` | AK/SK credentials              | `openapi-config --set-ak <ak> --set-sk <sk>` (manual setup required) |
+| File                       | Content                        | Created by             |
+| -------------------------- | ------------------------------ | ---------------------- |
+| `~/.gate-wallet/auth.json` | OAuth `mcp_token` (30-day TTL) | `login` command (auto) |
 
 ---
 
@@ -63,7 +84,7 @@ Agent should use **single-command mode** — each command runs independently and
 ```bash
 gate-wallet balance
 gate-wallet gas ETH
-gate-wallet openapi-token-rank --chain eth
+gate-wallet token-rank --chain eth
 gate-wallet call wallet.get_addresses
 ```
 
@@ -138,7 +159,7 @@ Only when `gate-wallet login` is unavailable (e.g. deps broken):
 
 ---
 
-## MCP Channel Commands
+## Commands
 
 ### Authentication
 
@@ -220,107 +241,11 @@ Extra options: `--slippage <pct>` · `--native-in <0|1>` · `--native-out <0|1>`
 
 ---
 
-## OpenAPI Channel Commands
-
-No OAuth login required. Uses AK/SK (HMAC-SHA256 signing) authentication.
-
-### Configuration
-
-| Command                                      | Description        |
-| -------------------------------------------- | ------------------ |
-| `openapi-config`                             | View AK/SK config  |
-| `openapi-config --set-ak <ak> --set-sk <sk>` | Update credentials |
-
-OpenAPI requires AK/SK credentials. Obtain them at [Gate DEX Developer](https://www.gatedex.com/developer) and configure before use.
-
-### Swap Trading
-
-| Command                                                                                  | Description            |
-| ---------------------------------------------------------------------------------------- | ---------------------- |
-| `openapi-chains`                                                                         | List supported chains  |
-| `openapi-gas --chain <chain>`                                                            | Gas price              |
-| `openapi-quote --chain <chain> --from <token> --to <token> --amount <n> --wallet <addr>` | Swap quote             |
-| `openapi-build --chain <chain> --from <token> --to <token> --amount <n> --wallet <addr>` | Build unsigned tx      |
-| `openapi-approve --wallet <addr> --amount <n> --quote-id <id>`                           | ERC20 approve calldata |
-| `openapi-submit --order-id <id> --signed-tx <json>`                                      | Submit signed tx       |
-| `openapi-status --chain <chain> --order-id <id>`                                         | Order status           |
-| `openapi-history --wallet <addr>`                                                        | Swap history           |
-
-### Token Queries
-
-| Command                                                                             | Description                 |
-| ----------------------------------------------------------------------------------- | --------------------------- |
-| `openapi-swap-tokens [--chain <chain>] [--search <keyword>]`                        | Swappable token list        |
-| `openapi-token-rank [--chain <chain>] [--sort <field>] [--limit <n>]`               | Token rankings              |
-| `openapi-new-tokens --start <RFC3339> [--chain <chain>]`                            | New tokens by creation time |
-| `openapi-token-risk --chain <chain> --address <addr>`                               | Token security audit        |
-| `openapi-bridge-tokens --src-chain <chain> --src-token <addr> --dest-chain <chain>` | Bridge tokens               |
-
-### Market Data
-
-| Command                                              | Description                 |
-| ---------------------------------------------------- | --------------------------- |
-| `openapi-volume --chain <chain> --address <addr>`    | Volume stats (5m/1h/4h/24h) |
-| `openapi-liquidity --chain <chain> --address <addr>` | Liquidity pool events       |
-
-### Debug
-
-| Command                        | Description                      |
-| ------------------------------ | -------------------------------- |
-| `openapi-call <action> [json]` | Call any OpenAPI action directly |
-
-### Hybrid Swap Flow (OpenAPI + MCP signing)
-
-When using OpenAPI for the swap flow but needing MCP for signing:
-
-```
-1. openapi-quote   → get quote (quote_id)
-2. openapi-build   → build unsigned tx (unsigned_tx, order_id)
-3. MCP sign-tx     → server-side signing
-4. openapi-submit  → submit signed tx
-5. openapi-status  → poll order status
-```
-
-### OpenAPI Chain Name Mapping
-
-`--chain` accepts chain names or numeric chain_id:
-
-| Name      | chain_id | Alias     |
-| --------- | -------- | --------- |
-| eth       | 1        | ethereum  |
-| bsc       | 56       | -         |
-| sol       | 501      | solana    |
-| arb       | 42161    | arbitrum  |
-| base      | 8453     | -         |
-| op        | 10       | optimism  |
-| polygon   | 137      | -         |
-| avax      | 43114    | avalanche |
-| linea     | 59144    | -         |
-| zksync    | 324      | -         |
-| tron      | 195      | trx       |
-| sui       | 101      | -         |
-| ton       | 607      | -         |
-| gatelayer | 10088    | -         |
-
-### OpenAPI Error Codes
-
-| Code        | Meaning                | Action                                 |
-| ----------- | ---------------------- | -------------------------------------- |
-| 10008       | Signature mismatch     | Check SK                               |
-| 10101       | Timestamp expired      | Check system clock                     |
-| 10103       | Auth failed            | Update AK/SK via `openapi-config`      |
-| 10131-10133 | Rate limited           | Wait and retry, or upgrade credentials |
-| 31104       | Trading pair not found | Verify token contract address          |
-| 31501       | Insufficient balance   | Check balance                          |
-
----
-
 ## Domain Knowledge
 
 ### Authentication Model
 
 - **MCP**: Gate/Google OAuth → `mcp_token` stored in `~/.gate-wallet/auth.json` (30-day TTL)
-- **OpenAPI**: AK/SK stored in `~/.gate-wallet/openapi.json` (permanent, no login needed)
 
 ### Custodial Wallet Architecture
 
@@ -334,7 +259,7 @@ Users never handle private keys or mnemonics. `sign-tx` is server-side signing.
 
 All amount parameters use **human-readable values**, NOT chain-native smallest units.
 
-| ✅ Correct               | ❌ Wrong                            |
+| Correct                  | Wrong                               |
 | ------------------------ | ----------------------------------- |
 | `--amount 0.1` (0.1 ETH) | `--amount 100000000000000000` (wei) |
 | `--amount 1` (1 SOL)     | `--amount 1000000000` (lamports)    |
@@ -352,7 +277,7 @@ In swap operations, native tokens (ETH/SOL/BNB) use `-` as address, and require 
 | Arbitrum | `0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9`   | `0xaf88d065e77c8cC2239327C5EDb3A432268e5831`   |
 | Solana   | `Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB` | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
 
-Use `token-info` or `openapi-swap-tokens --search <symbol>` to look up other token addresses.
+Use `token-info` or `swap-tokens --search <symbol>` to look up other token addresses.
 
 ### Chain Identifiers
 
@@ -381,7 +306,7 @@ All fund-moving operations follow a unified **preview → confirm → execute** 
 4. **Sign + broadcast**: `sign-tx` → `send-tx` / or `send`/`swap` one-shot commands
 5. **Verify**: `tx-detail <hash>` / `swap-detail <order_id>`
 
-> **⚠️ NEVER execute signing without user confirmation.**
+> **NEVER execute signing without user confirmation.**
 
 ### Address Format Validation
 
@@ -396,18 +321,18 @@ EVM and Solana addresses are NOT interchangeable. Always call `address` first to
 
 ## Typical Workflows
 
-### Token Research (OpenAPI first, no login)
+### Token Research
 
 ```
-openapi-token-rank --chain eth --limit 10        # Top gainers
-openapi-token-risk --chain eth --address 0x...    # Security audit
-openapi-volume --chain eth --address 0x...        # Trading volume
-openapi-liquidity --chain eth --address 0x...     # Liquidity events
-token-info --chain eth --address 0x...            # Full details (MCP, requires login)
-kline --chain eth --address 0x... --period 1h     # K-line chart (MCP, requires login)
+token-rank --chain eth --limit 10             # Top gainers
+token-risk --chain eth --address 0x...        # Security audit
+tx-stats --chain eth --address 0x...          # Trading volume
+liquidity --chain eth --address 0x...         # Liquidity events
+token-info --chain eth --address 0x...        # Full details
+kline --chain eth --address 0x... --period 1h # K-line chart
 ```
 
-### Safe Transfer (MCP)
+### Safe Transfer
 
 ```
 balance                                    # Confirm sufficient funds
@@ -417,7 +342,7 @@ send --chain ETH --to 0x... --amount 0.1      # Execute after confirmation
 tx-detail <hash>                           # Verify on-chain
 ```
 
-### Solana SPL Token Transfer (MCP)
+### Solana SPL Token Transfer
 
 SPL token transfer differs from native SOL and EVM ERC20. Key differences:
 
@@ -460,13 +385,6 @@ swap --from-chain 1 --to-chain 1 --from - --to 0xA0b8... --amount 0.01 --native-
 swap-detail <order_id>
 ```
 
-### Quote Comparison (OpenAPI, no login)
-
-```
-openapi-quote --chain eth --from - --to 0xdAC1... --amount 0.1 --wallet 0x...
-openapi-quote --chain bsc --from - --to 0x55d3... --amount 0.1 --wallet 0x...
-```
-
 ---
 
 ## Common Pitfalls
@@ -480,13 +398,12 @@ openapi-quote --chain bsc --from - --to 0x55d3... --amount 0.1 --wallet 0x...
 7. **Insufficient balance**: Check balance (including gas) before transfer/swap
 8. **Quote / blockhash expiry**: Quote ~30s, Solana blockhash ~90s — re-fetch if stale
 9. **Slippage settings**: Stablecoins 0.5-1%, volatile 1-3%, meme 3-5%+. MCP expects **decimal format** (0.03 = 3%). The CLI `swap`/`quote` commands auto-convert: `--slippage 3` → 0.03, `--slippage 0.03` → 0.03. Both formats are accepted.
-10. **OpenAPI credentials**: Must configure AK/SK before using `openapi-*` commands — no default keys shipped
-11. **SOL SPL transfer requires `token_decimals`**: When sending SPL tokens (TRUMP, USDC, etc.) on Solana, `tx.transfer_preview` requires both `token_mint` and `token_decimals`. The CLI `send` command auto-resolves decimals; for manual `call`, look up decimals via `token_list_swap_tokens` or `openapi-swap-tokens`
-12. **`tx.get_sol_unsigned` is native-SOL-only**: Do NOT use it for SPL token transfers — it ignores `token_mint` and builds a native SOL transfer, silently sending SOL instead of the intended SPL token
-13. **SOL SPL transfer needs extra SOL for ATA rent**: If recipient has no Associated Token Account for the SPL token, ~0.002 SOL rent is required on top of gas
-14. **EVM native transfer must set `token = "ETH"`**: When calling `tx.transfer_preview` without `--token` on EVM chains (ARB/BSC/BASE/OP etc.), you MUST explicitly pass `token = "ETH"` (or `"NATIVE"`) to indicate native token. Otherwise the MCP server defaults to transferring USDT instead of native ETH. The CLI `send`/`transfer` commands now handle this automatically.
-15. **`tokens` / `wallet.get_token_list` may not show L2 balances**: The wallet API may not index assets on L2 chains (e.g. ETH/USDT on Arbitrum). To verify L2 balances, use `rpc --chain <chain>` with `eth_getBalance` (native) or `eth_call` with ERC20 `balanceOf` (0x70a08231 + padded address).
-16. **`token` param required for correct display label**: `tx.transfer_preview` defaults display to "USDT" if `token` is not passed. The CLI `send` command now auto-resolves `token` symbol via `token_list_swap_tokens`. For `transfer` (preview-only), pass `--token-symbol <sym>` explicitly if using a non-native token.
+10. **SOL SPL transfer requires `token_decimals`**: When sending SPL tokens (TRUMP, USDC, etc.) on Solana, `tx.transfer_preview` requires both `token_mint` and `token_decimals`. The CLI `send` command auto-resolves decimals; for manual `call`, look up decimals via `token_list_swap_tokens`
+11. **`tx.get_sol_unsigned` is native-SOL-only**: Do NOT use it for SPL token transfers — it ignores `token_mint` and builds a native SOL transfer, silently sending SOL instead of the intended SPL token
+12. **SOL SPL transfer needs extra SOL for ATA rent**: If recipient has no Associated Token Account for the SPL token, ~0.002 SOL rent is required on top of gas
+13. **EVM native transfer must set `token = "ETH"`**: When calling `tx.transfer_preview` without `--token` on EVM chains (ARB/BSC/BASE/OP etc.), you MUST explicitly pass `token = "ETH"` (or `"NATIVE"`) to indicate native token. Otherwise the MCP server defaults to transferring USDT instead of native ETH. The CLI `send`/`transfer` commands now handle this automatically.
+14. **`tokens` / `wallet.get_token_list` may not show L2 balances**: The wallet API may not index assets on L2 chains (e.g. ETH/USDT on Arbitrum). To verify L2 balances, use `rpc --chain <chain>` with `eth_getBalance` (native) or `eth_call` with ERC20 `balanceOf` (0x70a08231 + padded address).
+15. **`token` param required for correct display label**: `tx.transfer_preview` defaults display to "USDT" if `token` is not passed. The CLI `send` command now auto-resolves `token` symbol via `token_list_swap_tokens`. For `transfer` (preview-only), pass `--token-symbol <sym>` explicitly if using a non-native token.
 
 ---
 
@@ -495,6 +412,6 @@ openapi-quote --chain bsc --from - --to 0x55d3... --amount 0.1 --wallet 0x...
 - **Confirm before fund operations**: `send`/`swap`/`approve` involve real funds — always confirm target address, amount, token, and chain with user
 - **Preview before execute**: Transfer → `transfer` preview, Swap → `quote`, Approval → `approve_preview`
 - **Approval safety**: Prefer exact-amount approvals over unlimited; only approve trusted contracts; periodically review and revoke unused approvals
-- **Risk audit**: Before trading unfamiliar tokens, run `token-risk` / `openapi-token-risk` and clearly present risk items to user
+- **Risk audit**: Before trading unfamiliar tokens, run `token-risk` and clearly present risk items to user
 - **Credential safety**: `~/.gate-wallet/` stores credentials securely in user home — never commit credentials to Git
 - **Server-side signing**: Users never expose private keys, but must trust Gate custodial service

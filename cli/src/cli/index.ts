@@ -6,7 +6,6 @@ import { createInterface } from "node:readline";
 import { Command } from "commander";
 import chalk from "chalk";
 import { registerAuthCommands, registerShortcutCommands } from "./auth.cmd.js";
-import { registerOpenApiCommands } from "./openapi.cmd.js";
 import { getMcpClientSync, getServerUrl } from "../core/mcp-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -15,8 +14,8 @@ const PKG_ROOT = join(__dirname, "..", "..");
 function resolveSkillFile(): string {
   const inPkg = join(PKG_ROOT, "SKILL.md");
   if (existsSync(inPkg)) return inPkg;
-  // dev mode: cli/src/cli/ → ../../skills/
-  const inRepo = join(PKG_ROOT, "..", "skills", "SKILL.md");
+  // dev mode: cli/src/cli/ → ../../skills/gate-wallet-cli/
+  const inRepo = join(PKG_ROOT, "..", "skills", "gate-wallet-cli", "SKILL.md");
   if (existsSync(inRepo)) return inRepo;
   return inPkg;
 }
@@ -57,7 +56,6 @@ program
 
 registerAuthCommands(program);
 registerShortcutCommands(program);
-registerOpenApiCommands(program);
 
 // ─── skill 命令 ──────────────────────────────────────────
 
@@ -99,15 +97,29 @@ program
     console.log(chalk.bold("\nGate Wallet CLI - Agent Skill File\n"));
     console.log(`  ${chalk.cyan("Path:")} ${SKILL_FILE}\n`);
     console.log(chalk.gray("Usage:\n"));
-    console.log(`  ${chalk.white("gate-wallet skill --print")}          Print SKILL.md content`);
-    console.log(`  ${chalk.white("gate-wallet skill --path")}           Print file path only`);
-    console.log(`  ${chalk.white("gate-wallet skill --install <dir>")}  Copy to a directory\n`);
+    console.log(
+      `  ${chalk.white("gate-wallet skill --print")}          Print SKILL.md content`,
+    );
+    console.log(
+      `  ${chalk.white("gate-wallet skill --path")}           Print file path only`,
+    );
+    console.log(
+      `  ${chalk.white("gate-wallet skill --install <dir>")}  Copy to a directory\n`,
+    );
     console.log(chalk.gray("Examples:\n"));
     console.log(chalk.gray("  # Cursor IDE — copy to global skills folder:"));
-    console.log(`  ${chalk.white("gate-wallet skill --install ~/.cursor/skills/gate-wallet-cli")}\n`);
-    console.log(chalk.gray("  # Claude Desktop / Windsurf / other — copy to your project:"));
+    console.log(
+      `  ${chalk.white("gate-wallet skill --install ~/.cursor/skills/gate-wallet-cli")}\n`,
+    );
+    console.log(
+      chalk.gray(
+        "  # Claude Desktop / Windsurf / other — copy to your project:",
+      ),
+    );
     console.log(`  ${chalk.white("gate-wallet skill --install ./")}\n`);
-    console.log(chalk.gray("  # Or just point your agent to read the file directly:"));
+    console.log(
+      chalk.gray("  # Or just point your agent to read the file directly:"),
+    );
     console.log(`  ${chalk.white(SKILL_FILE)}\n`);
   });
 

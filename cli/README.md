@@ -1,6 +1,11 @@
 # Gate Wallet CLI
 
-基于 MCP 协议的 Gate Web3 托管钱包命令行工具，通过 Google / Gate OAuth 登录后管理链上资产、查询行情、执行交易。
+Gate Web3 钱包命令行工具，支持**双通道**：
+
+- **MCP 通道**（默认）：Google / Gate OAuth 登录 → 服务端托管签名 → 钱包全功能（余额 / 转账 / Swap / 授权 / 行情）
+- **OpenAPI 通道**（免登录）：AK/SK 认证 → 用户自持私钥签名 → DEX Swap 交易。详见 [gate-dex-trade Skill](../skills/gate-dex-trade/SKILL.md)
+
+Swap 功能两个通道均可完成。用户可指定通道，也可由 Agent 自动选择（已登录优先 MCP，未登录但有 AK/SK 则走 OpenAPI）。
 
 ## 安装
 
@@ -64,84 +69,82 @@ gate-wallet> exit
 
 ## 配置
 
-所有配置和凭证存储在用户目录下的 `~/.gate-wallet/` 中：
+所有配置和凭证存储在用户目录下：
 
 ```
 ~/.gate-wallet/
 ├── auth.json       # OAuth token（自动生成）
-├── openapi.json    # OpenAPI AK/SK 凭证
 └── .env            # 环境变量（可选，如 MCP_URL）
+
+~/.gate-dex-openapi/
+└── config.json     # Gate DEX OpenAPI AK/SK 凭证（独立 Skill 使用）
 ```
 
 ### 环境变量
 
-可通过 `~/.gate-wallet/.env` 配置 MCP Server 地址：
-
-```bash
-# 默认使用生产环境，如需切换：
-MCP_URL=https://wallet-service-mcp-test.gateweb3.cc/mcp
-```
-
-也可通过系统环境变量设置，系统环境变量优先级更高。
+可通过 `~/.gate-wallet/.env` 或系统环境变量配置 MCP Server 地址（`MCP_URL`），不设置时默认连接生产环境。系统环境变量优先级高于 `.env` 文件。
 
 ### OAuth 登录凭证
 
 登录后自动保存，无需手动配置。
 
-### OpenAPI AK/SK
+### Gate DEX OpenAPI（免登录 Swap 交易）
 
-CLI 集成了 Gate DEX OpenAPI，用于免登录查询（报价、Gas、排行、安全审计等）。配置文件：
+Gate DEX OpenAPI 通过 AK/SK 认证，支持免登录的 Swap 交易功能。由独立 Skill（`skills/gate-dex-trade`）提供。
 
-```
-~/.gate-wallet/openapi.json  # AK/SK 凭证
-```
+**与 MCP Swap 的关系**：两者功能重叠，区别在于 MCP 使用托管签名（用户无需私钥），OpenAPI 使用自持私钥签名（更灵活）。用户可通过关键词指定通道（"用 openapi" / "用 MCP"），未指定时 Agent 根据登录状态自动选择。
 
-**首次使用 `openapi-*` 命令前需先配置 AK/SK**，否则会提示未配置。前往 [Gate DEX Developer](https://www.gatedex.com/developer) 创建 AK/SK。
+配置文件路径：`~/.gate-dex-openapi/config.json`
 
-#### 双通道架构
-
-OpenAPI 分为两个通道，可独立配置 AK/SK 和 endpoint：
-
-| 通道    | 用途                                                      | CLI 参数                            |
-| ------- | --------------------------------------------------------- | ----------------------------------- |
-| `trade` | Swap 交易（`trade.swap.*`）                               | `--set-ak` / `--set-sk`             |
-| `query` | 代币查询 / 行情 / 安全审计（`base.token.*` / `market.*`） | `--set-query-ak` / `--set-query-sk` |
-
-#### 配置方式
-
-**方式一：CLI 命令**
+#### 创建配置
 
 ```bash
-# 设置 Trade 通道（Swap 交易）
-gate-wallet openapi-config --set-ak YOUR_TRADE_AK --set-sk YOUR_TRADE_SK
+# 1. 创建目录
+mkdir -p ~/.gate-dex-openapi && chmod 700 ~/.gate-dex-openapi
 
-# 设置 Query 通道（查询行情/代币）
-gate-wallet openapi-config --set-query-ak YOUR_QUERY_AK --set-query-sk YOUR_QUERY_SK
+# 2. 写入配置（使用默认公共凭证）
+cat > ~/.gate-dex-openapi/config.json << 'EOF'
+{
+  "api_key": "YOUR_API_KEY",
+  "secret_key": "YOUR_SECRET_KEY",
+  "default_slippage": 0.03,
+  "default_slippage_type": 1
+}
+EOF
 
-# 查看当前配置
-gate-wallet openapi-config
+# 3. 设置文件权限（仅所有者可读写）
+chmod 600 ~/.gate-dex-openapi/config.json
 ```
 
-**方式二：直接编辑 `~/.gate-wallet/openapi.json`**
+#### 配置文件格式
 
 ```json
 {
-  "trade": {
-    "api_key": "YOUR_TRADE_AK",
-    "secret_key": "YOUR_TRADE_SK"
-  },
-  "query": {
-    "api_key": "YOUR_QUERY_AK",
-    "secret_key": "YOUR_QUERY_SK"
-  },
+  "api_key": "你的 API Key",
+  "secret_key": "你的 Secret Key",
+  "default_chain_id": 1,
   "default_slippage": 0.03,
   "default_slippage_type": 1
 }
 ```
 
-- `trade` 和 `query` 可使用相同或不同的 AK/SK
-- 每个通道可选配 `endpoint` 字段，指定独立的 API 地址
-- 未配置 `endpoint` 时默认使用生产环境 `https://openapi.gateweb3.cc/api/v1/dex`
+| 字段                  | 类型   | 必填 | 说明                           |
+| --------------------- | ------ | ---- | ------------------------------ |
+| api_key               | string | 是   | API Key                        |
+| secret_key            | string | 是   | Secret Key                     |
+| default_chain_id      | int    | 否   | 默认链 ID，省略时每次询问用户  |
+| default_slippage      | float  | 否   | 默认滑点，0.03 = 3%            |
+| default_slippage_type | int    | 否   | 1 = 百分比模式，2 = 固定值模式 |
+
+#### 获取 AK/SK
+
+前往 [Gate DEX Developer](https://www.gatedex.com/developer) 创建专属 AK/SK：
+
+1. 连接钱包注册
+2. Settings 绑定邮箱和手机
+3. API Key Management 创建密钥
+
+详细说明：[Gate DEX API 文档](https://gateweb3.gitbook.io/gate_dex_api/exploredexapi/en/api-access-and-usage/developer-platform)
 
 ## 登录 / 登出
 
@@ -195,12 +198,16 @@ gate-wallet logout
 
 ### Swap 兑换
 
+MCP 通道（需登录，托管签名）：
+
 | 命令                                                     | 说明                                |
 | -------------------------------------------------------- | ----------------------------------- |
 | `quote --from-chain 1 --from - --to 0x... --amount 0.01` | 获取 Swap 报价                      |
 | `swap --from-chain 1 --from - --to 0x... --amount 0.01`  | 一键兑换（Quote→Build→Sign→Submit） |
 | `swap-detail <order_id>`                                 | 查询 Swap 交易详情                  |
 | `swap-history --limit 3`                                 | Swap / Bridge 历史（支持分页）      |
+
+OpenAPI 通道（免登录，自持私钥签名）也支持完整 Swap 流程，详见 [gate-dex-trade Skill](../skills/gate-dex-trade/SKILL.md)。用户说 "用 openapi swap" 时走 OpenAPI，否则默认走 MCP。
 
 ### 行情数据
 
@@ -235,45 +242,6 @@ gate-wallet logout
 | `tools`              | 列出所有可用的 MCP Tools |
 | `call <tool> [json]` | 直接调用任意 MCP Tool    |
 
-### OpenAPI 命令（免登录）
-
-#### 配置
-
-| 命令             | 说明                   |
-| ---------------- | ---------------------- |
-| `openapi-config` | 查看 / 更新 AK/SK 配置 |
-| `openapi-chains` | 查询支持的链列表       |
-| `openapi-gas`    | 查询 Gas 费用          |
-
-#### 代币查询
-
-| 命令                    | 说明                 |
-| ----------------------- | -------------------- |
-| `openapi-token-rank`    | 代币涨跌幅排行榜     |
-| `openapi-token-risk`    | 代币安全审计         |
-| `openapi-swap-tokens`   | 可兑换代币列表       |
-| `openapi-new-tokens`    | 按时间筛选新上线代币 |
-| `openapi-bridge-tokens` | 跨链桥目标代币       |
-
-#### 行情数据
-
-| 命令                | 说明         |
-| ------------------- | ------------ |
-| `openapi-volume`    | 交易量统计   |
-| `openapi-liquidity` | 流动性池事件 |
-
-#### Swap 交易
-
-| 命令            | 说明           |
-| --------------- | -------------- |
-| `openapi-quote` | 获取 Swap 报价 |
-
-#### 调试
-
-| 命令            | 说明                        |
-| --------------- | --------------------------- |
-| `openapi-debug` | 直接调用任意 OpenAPI action |
-
 ## 操作示例
 
 ### 查看资产
@@ -281,44 +249,43 @@ gate-wallet logout
 ```
 gate-wallet> address
 {
-  "account_id": "6fb55bb0-...",
+  "account_id": "xxxxxxxx-...",
   "addresses": {
-    "EVM": "0xdb918f36a1c282a042758b544c64ae5a1d5767a2",
-    "SOL": "BTYzBJ5N7L9exV4UAvHnPhfmovz4tmbVvagar4U7bfxE"
+    "EVM": "0x1234...abcd",
+    "SOL": "ABCD...XYZ1"
   }
 }
 
 gate-wallet> balance
 {
-  "total_value": "$2.76"
+  "total_value": "$12.34"
 }
 
 gate-wallet> tokens
-  ETH   0.0009585  $1.91
-  SOL   0.006752   $0.566
-  USDT  0.1978     $0.1978
-  USDC  0.08429    $0.08429
+  ETH   0.005      $10.00
+  SOL   0.05       $6.50
+  USDT  1.00       $1.00
 ```
 
 ### ETH 一键转账
 
 ```
-gate-wallet> send --chain ETH --to 0x44a04fb1be798ceeeafaf7e8bd3ab6dd1ae8d044 --amount 0.0001
-✔ 预览成功：Transfer 0.0001 ETH from 0xdb91...67a2 to 0x44a0...d044 on ETH
+gate-wallet> send --chain ETH --to 0x1234...abcd --amount 0.0001
+✔ 预览成功：Transfer 0.0001 ETH from 0xaaaa...bbbb to 0x1234...abcd on ETH
 ✔ 签名成功
 ✔ 交易已广播
-  Hash: 0x952c9c05dbe52af3088a98363c2b893770b904e2fb2fd8c5bfa857dad28a9f68
+  Hash: 0xabcdef...
 ```
 
 ### SOL 一键转账
 
 ```
-gate-wallet> send --chain SOL --to 3dDNcfPbYQsnHiA7hw7ATSDXv1uYMbZ4AEPjdgUz2T6f --amount 0.001
-✔ 预览成功：Transfer 0.001 SOL from BTYz...bfxE to 3dDN...2T6f on SOL
+gate-wallet> send --chain SOL --to ABCD...XYZ1 --amount 0.001
+✔ 预览成功：Transfer 0.001 SOL from AAAA...BBB1 to ABCD...XYZ1 on SOL
 ✔ 已获取最新 unsigned_tx
 ✔ 签名成功
 ✔ 交易已广播
-  Hash: 3eLtpu1xoPM2Fodtjzw1wq1V3CRyPFCk74AvFtwrzsu5...
+  Hash: 5xYz...
 ```
 
 ### ETH → USDT Swap
@@ -327,14 +294,14 @@ gate-wallet> send --chain SOL --to 3dDNcfPbYQsnHiA7hw7ATSDXv1uYMbZ4AEPjdgUz2T6f 
 gate-wallet> swap --from-chain 1 --to-chain 1 --from - --to 0xdAC17F958D2ee523a2206206994597C13D831ec7 --amount 0.0001 --native-in 1 --native-out 0 --slippage 0.1
 {
   "status": "submitted",
-  "tx_hash": "0x894d9694...",
+  "tx_hash": "0xabcdef...",
   "amount_in": "0.0001",
-  "amount_out": "0.202504",
+  "amount_out": "0.20",
   "from_token": "ETH",
   "to_token": "USDT"
 }
 
-gate-wallet> swap-detail <tx_order_id>
+gate-wallet> swap-detail <order_id>
 ```
 
 ### SOL → USDC Swap
@@ -343,9 +310,9 @@ gate-wallet> swap-detail <tx_order_id>
 gate-wallet> swap --from-chain 501 --to-chain 501 --from - --to EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v --amount 0.001 --native-in 1 --native-out 0 --slippage 0.1
 {
   "status": "submitted",
-  "tx_hash": "1GPGnkBnggFCYf1RA6Gpq...",
+  "tx_hash": "5xYz...",
   "amount_in": "0.001",
-  "amount_out": "0.083644",
+  "amount_out": "0.08",
   "from_token": "SOL",
   "to_token": "USDC"
 }
