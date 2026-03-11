@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "cli": "tsx src/cli/index.ts",
-    "build": "tsc",
+    "build": "tsc && cp ../skills/SKILL.md .",
     "dev": "tsx --watch src/cli/index.ts",
     "prepublishOnly": "npm run build"
   },

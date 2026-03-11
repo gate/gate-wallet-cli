@@ -1,0 +1,8 @@
+node_modules/
+.pnpm-store/
+dist/
+.gate-wallet/
+*.env
+*.env.*
+# build 时从 ../skills/ 复制过来的，不需要提交
+SKILL.md

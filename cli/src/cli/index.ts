@@ -11,7 +11,17 @@ import { getMcpClientSync, getServerUrl } from "../core/mcp-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(__dirname, "..", "..");
-const SKILL_FILE = join(PKG_ROOT, "SKILL.md");
+
+function resolveSkillFile(): string {
+  const inPkg = join(PKG_ROOT, "SKILL.md");
+  if (existsSync(inPkg)) return inPkg;
+  // dev mode: cli/src/cli/ → ../../skills/
+  const inRepo = join(PKG_ROOT, "..", "skills", "SKILL.md");
+  if (existsSync(inRepo)) return inRepo;
+  return inPkg;
+}
+
+const SKILL_FILE = resolveSkillFile();
 
 function loadEnvFile(filePath: string): void {
   try {

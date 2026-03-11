@@ -29,7 +29,7 @@ npx gate-wallet-cli balance
 
 ```bash
 git clone <repo-url>
-cd gate-wallet-cli
+cd gate-wallet-cli/cli
 pnpm install
 pnpm cli login               # 开发模式运行
 ```
@@ -145,18 +145,18 @@ gate-wallet openapi-config
 
 ## 登录 / 登出
 
-```
+```bash
 # Gate OAuth 登录（默认，浏览器授权）
-login
+gate-wallet login
 
 # Google OAuth 登录
-login --google
+gate-wallet login --google
 
 # 查看登录状态
-status
+gate-wallet status
 
 # 登出
-logout
+gate-wallet logout
 ```
 
 ## 命令速查

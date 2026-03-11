@@ -56,7 +56,7 @@ All credentials are stored in `~/.gate-wallet/` (user home directory):
 
 ---
 
-## Cursor Agent Usage
+## Agent Usage
 
 Agent should use **single-command mode** — each command runs independently and exits:
 
@@ -71,7 +71,7 @@ gate-wallet call wallet.get_addresses
 
 Triggered when any command returns `Not logged in. Run: login` or `~/.gate-wallet/auth.json` is missing:
 
-1. **Start login in background** (`block_until_ms: 0`, `required_permissions: ["all"]`):
+1. **Start login in background** (non-blocking, let user complete browser auth):
 
 ```bash
 gate-wallet login
@@ -85,7 +85,7 @@ gate-wallet login
    - `Login failed` / `Login timed out` → prompt user to retry
 4. **On success**: token auto-saved to `~/.gate-wallet/auth.json`
 
-> **Important**: Never use `block_until_ms` to block-wait for login. Always use background mode + terminal file polling.
+> **Important**: Login is interactive (opens browser). Run it in background, then poll terminal output for completion.
 
 ### MCP Tool Call Fallback Strategy
 
