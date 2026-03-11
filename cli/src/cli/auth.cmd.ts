@@ -362,6 +362,9 @@ export function registerShortcutCommands(program: Command) {
         } else {
           args.token_contract = opts.token;
         }
+        if (opts.tokenSymbol) {
+          args.token = opts.tokenSymbol;
+        }
       } else if (opts.chain && opts.chain.toUpperCase() === "SOL") {
         args.token = "SOL";
       } else {
@@ -376,6 +379,7 @@ export function registerShortcutCommands(program: Command) {
       ["--from <address>", "付款地址 (默认自动获取)"],
       ["--token <contract>", "Token 合约/Mint 地址 (原生币可不填)"],
       ["--token-decimals <decimals>", "Token 精度 (SOL SPL 代币需要)"],
+      ["--token-symbol <symbol>", "Token 符号 (用于显示，如 TRUMP/USDC)"],
     ],
   );
   // ─── 一键转账 (Preview → Sign → Broadcast) ────────────
@@ -391,6 +395,7 @@ export function registerShortcutCommands(program: Command) {
       "--token-decimals <decimals>",
       "Token 精度 (SPL 代币必填或自动查询)",
     )
+    .option("--token-symbol <symbol>", "Token 符号 (用于显示，如 TRUMP/USDC)")
     .action(async function (
       this: Command,
       opts: Record<string, string | undefined>,
@@ -421,14 +426,20 @@ export function registerShortcutCommands(program: Command) {
           return;
         }
 
-        // Auto-resolve token_decimals for SOL SPL transfers
+        // Auto-resolve token_decimals and token symbol for SPL/ERC20 transfers
         let tokenDecimals: number | undefined;
+        let tokenSymbol: string | undefined = opts.tokenSymbol;
         if (opts.tokenDecimals) {
           tokenDecimals = Number(opts.tokenDecimals);
-        } else if (opts.token && chain === "SOL") {
+        }
+        if (opts.token && chain === "SOL" && (!tokenDecimals || !tokenSymbol)) {
           try {
             const tokenListRes = extractToolJson<{
-              tokens?: Array<{ address?: string; decimal?: number }>;
+              tokens?: Array<{
+                address?: string;
+                decimal?: number;
+                symbol?: string;
+              }>;
             }>(
               (await mcp.callTool("token_list_swap_tokens", {
                 chain_name: "solana",
@@ -438,11 +449,35 @@ export function registerShortcutCommands(program: Command) {
             const matched = tokenListRes.tokens?.find(
               (t) => t.address?.toLowerCase() === opts.token!.toLowerCase(),
             );
-            if (matched?.decimal != null) {
+            if (matched?.decimal != null && !tokenDecimals) {
               tokenDecimals = matched.decimal;
+            }
+            if (matched?.symbol && !tokenSymbol) {
+              tokenSymbol = matched.symbol;
             }
           } catch {
             // ignore lookup failure; will fail at preview if decimals truly required
+          }
+        } else if (opts.token && chain !== "SOL" && !tokenSymbol) {
+          try {
+            const chainName =
+              chain === "ETH" ? "ethereum" : chain.toLowerCase();
+            const tokenListRes = extractToolJson<{
+              tokens?: Array<{ address?: string; symbol?: string }>;
+            }>(
+              (await mcp.callTool("token_list_swap_tokens", {
+                chain_name: chainName,
+                search: opts.token,
+              })) as Record<string, unknown>,
+            );
+            const matched = tokenListRes.tokens?.find(
+              (t) => t.address?.toLowerCase() === opts.token!.toLowerCase(),
+            );
+            if (matched?.symbol) {
+              tokenSymbol = matched.symbol;
+            }
+          } catch {
+            // ignore
           }
         }
 
@@ -462,6 +497,9 @@ export function registerShortcutCommands(program: Command) {
             }
           } else {
             previewArgs.token_contract = opts.token;
+          }
+          if (tokenSymbol) {
+            previewArgs.token = tokenSymbol;
           }
         } else if (chain === "SOL") {
           previewArgs.token = "SOL";

@@ -159,16 +159,16 @@ Only when `gate-wallet login` is unavailable (e.g. deps broken):
 
 ### Transfers
 
-| Command                                                                                            | Description                                    |
-| -------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `send --chain <chain> --to <addr> --amount <n> [--token <contract>] [--token-decimals <decimals>]` | One-shot transfer (preview → sign → broadcast) |
-| `transfer --chain <chain> --to <addr> --amount <n> [--token <contract>] [--token-decimals <d>]`    | Preview only (no execution)                    |
-| `gas [chain]`                                                                                      | Gas fee estimation                             |
-| `sol-tx --to <addr> --amount <n> [--mint <token>]`                                                 | Build SOL unsigned tx (native SOL only)        |
-| `sign-tx <raw_tx>`                                                                                 | Sign raw transaction (server-side)             |
-| `send-tx --chain <chain> --hex <signed_tx> --to <addr>`                                            | Broadcast signed tx                            |
-| `tx-detail <tx_hash>`                                                                              | Transaction details                            |
-| `tx-history [--page <n>] [--limit <n>]`                                                            | Transaction history                            |
+| Command                                                                                                                | Description                                    |
+| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `send --chain <chain> --to <addr> --amount <n> [--token <contract>] [--token-decimals <d>] [--token-symbol <sym>]`     | One-shot transfer (preview → sign → broadcast) |
+| `transfer --chain <chain> --to <addr> --amount <n> [--token <contract>] [--token-decimals <d>] [--token-symbol <sym>]` | Preview only (no execution)                    |
+| `gas [chain]`                                                                                                          | Gas fee estimation                             |
+| `sol-tx --to <addr> --amount <n> [--mint <token>]`                                                                     | Build SOL unsigned tx (native SOL only)        |
+| `sign-tx <raw_tx>`                                                                                                     | Sign raw transaction (server-side)             |
+| `send-tx --chain <chain> --hex <signed_tx> --to <addr>`                                                                | Broadcast signed tx                            |
+| `tx-detail <tx_hash>`                                                                                                  | Transaction details                            |
+| `tx-history [--page <n>] [--limit <n>]`                                                                                | Transaction history                            |
 
 ### Token Approval
 
@@ -421,19 +421,20 @@ tx-detail <hash>                           # Verify on-chain
 
 SPL token transfer differs from native SOL and EVM ERC20. Key differences:
 
-1. **Requires `token_mint` + `token_decimals`**: The MCP `tx.transfer_preview` tool requires both fields for SPL transfers. The CLI `send` command auto-resolves `token_decimals` via `token_list_swap_tokens`, or accepts `--token-decimals` explicitly.
-2. **`tx.get_sol_unsigned` is native-SOL-only**: This tool rebuilds the unsigned tx with a fresh blockhash, but only supports native SOL transfers. For SPL tokens, the CLI skips this step and uses the `unsigned_tx_hex` from `transfer_preview` directly (blockhash valid ~90s, sufficient for immediate signing).
-3. **Recipient ATA (Associated Token Account)**: If the recipient has no ATA for the SPL token, the transaction includes ATA creation (~0.002 SOL rent). Ensure sufficient SOL balance for both gas + rent.
+1. **Requires `token_mint` + `token_decimals`**: The MCP `tx.transfer_preview` tool requires both fields for SPL transfers. The CLI `send` command auto-resolves `token_decimals` and `token` symbol via `token_list_swap_tokens`, or accepts `--token-decimals` / `--token-symbol` explicitly.
+2. **`token` param for display**: `tx.transfer_preview` uses the `token` parameter for display labels (default "USDT"). The CLI now auto-resolves the token symbol from `token_list_swap_tokens` and passes it as `token`. You can also specify `--token-symbol <sym>` explicitly.
+3. **`tx.get_sol_unsigned` is native-SOL-only**: This tool rebuilds the unsigned tx with a fresh blockhash, but only supports native SOL transfers. For SPL tokens, the CLI skips this step and uses the `unsigned_tx_hex` from `transfer_preview` directly (blockhash valid ~90s, sufficient for immediate signing).
+4. **Recipient ATA (Associated Token Account)**: If the recipient has no ATA for the SPL token, the transaction includes ATA creation (~0.002 SOL rent). Ensure sufficient SOL balance for both gas + rent.
 
 ```
-# CLI one-shot (recommended — handles decimals + signing automatically)
+# CLI one-shot (recommended — handles decimals + symbol automatically)
 send --chain SOL --to <sol_addr> --amount 0.001 --token <token_mint>
 
-# With explicit decimals
-send --chain SOL --to <sol_addr> --amount 0.001 --token <token_mint> --token-decimals 6
+# With explicit decimals and symbol
+send --chain SOL --to <sol_addr> --amount 0.001 --token <token_mint> --token-decimals 6 --token-symbol TRUMP
 
 # Preview only
-transfer --chain SOL --to <sol_addr> --amount 0.001 --token <token_mint> --token-decimals 6
+transfer --chain SOL --to <sol_addr> --amount 0.001 --token <token_mint> --token-symbol TRUMP
 ```
 
 **Fallback (Level 3 JSON-RPC)** — when CLI `call` returns 401 for `tx.transfer_preview`:
@@ -485,6 +486,7 @@ openapi-quote --chain bsc --from - --to 0x55d3... --amount 0.1 --wallet 0x...
 13. **SOL SPL transfer needs extra SOL for ATA rent**: If recipient has no Associated Token Account for the SPL token, ~0.002 SOL rent is required on top of gas
 14. **EVM native transfer must set `token = "ETH"`**: When calling `tx.transfer_preview` without `--token` on EVM chains (ARB/BSC/BASE/OP etc.), you MUST explicitly pass `token = "ETH"` (or `"NATIVE"`) to indicate native token. Otherwise the MCP server defaults to transferring USDT instead of native ETH. The CLI `send`/`transfer` commands now handle this automatically.
 15. **`tokens` / `wallet.get_token_list` may not show L2 balances**: The wallet API may not index assets on L2 chains (e.g. ETH/USDT on Arbitrum). To verify L2 balances, use `rpc --chain <chain>` with `eth_getBalance` (native) or `eth_call` with ERC20 `balanceOf` (0x70a08231 + padded address).
+16. **`token` param required for correct display label**: `tx.transfer_preview` defaults display to "USDT" if `token` is not passed. The CLI `send` command now auto-resolves `token` symbol via `token_list_swap_tokens`. For `transfer` (preview-only), pass `--token-symbol <sym>` explicitly if using a non-native token.
 
 ---
 
