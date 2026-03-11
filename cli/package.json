@@ -11,11 +11,12 @@
     "dist",
     "bin",
     "SKILL.md",
+    "skills",
     ".env.defaults"
   ],
   "scripts": {
     "cli": "tsx src/cli/index.ts",
-    "build": "tsc && cp ../skills/SKILL.md .",
+    "build": "tsc && cp ../skills/gate-wallet-cli/SKILL.md . && mkdir -p skills/gate-dex-trade && cp ../skills/gate-dex-trade/SKILL.md skills/gate-dex-trade/ && chmod +x bin/gate-wallet.js",
     "dev": "tsx --watch src/cli/index.ts",
     "prepublishOnly": "npm run build"
   },

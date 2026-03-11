@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { Command } from "commander";
 import chalk from "chalk";
 import { registerAuthCommands, registerShortcutCommands } from "./auth.cmd.js";
+import { registerOpenApiCommands } from "./openapi.cmd.js";
 import { getMcpClientSync, getServerUrl } from "../core/mcp-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -65,6 +66,7 @@ program
 
 registerAuthCommands(program);
 registerShortcutCommands(program);
+registerOpenApiCommands(program);
 
 // ─── skill 命令 ──────────────────────────────────────────
 

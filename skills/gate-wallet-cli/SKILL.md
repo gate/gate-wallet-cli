@@ -22,10 +22,10 @@ This project has two channels that **overlap on Swap functionality**. Agent MUST
 
 **Rule 1 — Explicit user request (highest priority)**
 
-| User says | Route to | Reason |
-| --- | --- | --- |
+| User says                                                                     | Route to                                                                                    | Reason                        |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------- |
 | "用 openapi" / "openapi swap" / "AK/SK" / "直连 API" / "DEX API" / "自己签名" | **OpenAPI channel** → read and follow [gate-dex-trade/SKILL.md](../gate-dex-trade/SKILL.md) | User explicitly chose OpenAPI |
-| "用 MCP" / "用钱包" / "托管签名" / "gate-wallet swap" | **MCP channel** → continue with this SKILL | User explicitly chose MCP |
+| "用 MCP" / "用钱包" / "托管签名" / "gate-wallet swap"                         | **MCP channel** → continue with this SKILL                                                  | User explicitly chose MCP     |
 
 **Rule 2 — MCP-only operations (no overlap, always MCP)**
 
@@ -37,22 +37,24 @@ These features exist ONLY in MCP. No routing decision needed:
 
 When user requests swap/quote/swap-detail/swap-history WITHOUT specifying a channel:
 
-| Condition | Preferred channel | Reason |
-| --- | --- | --- |
-| User is logged in (`~/.gate-wallet/auth.json` exists and valid) | **MCP** | Simpler flow, no private key needed, one-shot swap |
-| User is NOT logged in but `~/.gate-dex-openapi/config.json` exists | **OpenAPI** | Already has AK/SK configured, can proceed without login |
-| User is NOT logged in and no OpenAPI config exists | **MCP** (prompt login first) | MCP is the default path, guide user to login |
-| User mentions private key / self-custody / fine-grained control | **OpenAPI** | OpenAPI allows step-by-step control and self-signing |
-| User needs features only in OpenAPI (custom fee_recipient, MEV protection, gas price query, chain list query) | **OpenAPI** | These features don't exist in MCP |
+| Condition                                                                                                     | Preferred channel            | Reason                                                  |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------- |
+| User is logged in (`~/.gate-wallet/auth.json` exists and valid)                                               | **MCP**                      | Simpler flow, no private key needed, one-shot swap      |
+| User is NOT logged in but `~/.gate-dex-openapi/config.json` exists                                            | **OpenAPI**                  | Already has AK/SK configured, can proceed without login |
+| User is NOT logged in and no OpenAPI config exists                                                            | **MCP** (prompt login first) | MCP is the default path, guide user to login            |
+| User mentions private key / self-custody / fine-grained control                                               | **OpenAPI**                  | OpenAPI allows step-by-step control and self-signing    |
+| User needs features only in OpenAPI (custom fee_recipient, MEV protection, gas price query, chain list query) | **OpenAPI**                  | These features don't exist in MCP                       |
+
+> **Hybrid mode**: When OpenAPI is chosen but the user has no local private key (custodial wallet), use **Hybrid Swap**: OpenAPI for quote/build/submit + MCP for signing. See "Hybrid Swap" in Typical Workflows section.
 
 ### Overlap Reference
 
-| Function | MCP Tool | OpenAPI Actions |
-| --- | --- | --- |
-| Swap quote | `tx.quote` | `trade.swap.quote` |
-| Execute swap | `tx.swap` (one-shot) | `quote` → `approve` → `build` → `submit` |
-| Swap order detail | `tx.swap_detail` | `trade.swap.status` |
-| Swap history | `tx.history_list` | `trade.swap.history` |
+| Function          | MCP Tool             | OpenAPI Actions                          |
+| ----------------- | -------------------- | ---------------------------------------- |
+| Swap quote        | `tx.quote`           | `trade.swap.quote`                       |
+| Execute swap      | `tx.swap` (one-shot) | `quote` → `approve` → `build` → `submit` |
+| Swap order detail | `tx.swap_detail`     | `trade.swap.status`                      |
+| Swap history      | `tx.history_list`    | `trade.swap.history`                     |
 
 ## Quick Start
 
@@ -385,6 +387,120 @@ swap --from-chain 1 --to-chain 1 --from - --to 0xA0b8... --amount 0.01 --native-
 swap-detail <order_id>
 ```
 
+### Hybrid Swap (OpenAPI + MCP signing)
+
+Use OpenAPI for quote/build/submit and MCP for custodial signing. This is the preferred approach when the user explicitly requests OpenAPI or needs OpenAPI-only features (custom fee_recipient, gas price queries, etc.).
+
+**Critical performance rule**: The entire flow MUST be executed in a **single `python3 -c '...'` Shell call** to avoid multi-step latency. Never split build/sign/submit into separate Shell calls — that causes 15-20 minute delays due to network round-trips and order_id expiry (build → submit must complete within ~30s).
+
+**Prerequisites**:
+
+- `~/.gate-dex-openapi/config.json` exists with `api_key` and `secret_key`
+- User is logged in (MCP token in `~/.gate-wallet/auth.json`)
+- `pip3 install rlp` (one-time)
+- Read [gate-dex-trade/SKILL.md](../gate-dex-trade/SKILL.md) for OpenAPI parameter details and auth signature algorithm
+
+**Flow overview**:
+
+| Step | Channel | Action                                                                                                 |
+| ---- | ------- | ------------------------------------------------------------------------------------------------------ |
+| 1    | OpenAPI | `trade.swap.quote` — get quote + show to user for confirmation                                         |
+| 2    | OpenAPI | `trade.swap.build` — get unsigned_tx + order_id                                                        |
+| 3    | MCP RPC | `rpc.call` — get nonce + gasPrice (add 20% buffer to gasPrice)                                         |
+| 4    | Local   | RLP-encode EIP-1559 unsigned tx (type 0x02)                                                            |
+| 5    | MCP     | `wallet.sign_transaction` — custodial signing                                                          |
+| 6    | OpenAPI | `trade.swap.submit` — submit signed tx (signed_tx_string must be JSON array format: `'["0x02f8..."]'`) |
+| 7    | OpenAPI | `trade.swap.status` — poll every 5s (needs chain_id + order_id + tx_hash)                              |
+
+**Agent execution template** (steps 2-7 in one script, after user confirms quote):
+
+```python
+python3 -c '
+import hmac, hashlib, base64, json, time, uuid, urllib.request, rlp
+
+# ── Config (read from files) ──
+cfg = json.load(open("PATH_TO_HOME/.gate-dex-openapi/config.json"))
+auth = json.load(open("PATH_TO_HOME/.gate-wallet/auth.json"))
+ak, sk = cfg["api_key"], cfg["secret_key"]
+MCP_URL = auth.get("server_url", "MCP_URL_FROM_ENV")
+MCP_TOKEN = auth["mcp_token"]
+WALLET = "USER_EVM_ADDRESS"
+
+# ── Helpers ──
+def call_openapi(payload):
+    body = json.dumps(payload, separators=(",",":"))
+    ts = str(int(time.time() * 1000))
+    sig = base64.b64encode(hmac.new(sk.encode(), (ts+"/api/v1/dex"+body).encode(), hashlib.sha256).digest()).decode()
+    req = urllib.request.Request("https://openapi.gateweb3.cc/api/v1/dex", data=body.encode(), method="POST",
+        headers={"Content-Type":"application/json","X-API-Key":ak,"X-Timestamp":ts,"X-Signature":sig,"X-Request-Id":str(uuid.uuid4())})
+    return json.loads(urllib.request.urlopen(req).read().decode())
+
+def to_bytes(n):
+    if n == 0: return b""
+    h = hex(n)[2:]
+    if len(h) % 2: h = "0" + h
+    return bytes.fromhex(h)
+
+def mcp_init():
+    req = urllib.request.Request(MCP_URL, method="POST",
+        data=json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"cli","version":"1.0.0"}}}).encode(),
+        headers={"Content-Type":"application/json","x-api-key":"mcp_ak_demo"})
+    return urllib.request.urlopen(req).headers.get("mcp-session-id")
+
+def mcp_call(sid, tool, args, cid):
+    req = urllib.request.Request(MCP_URL, method="POST",
+        data=json.dumps({"jsonrpc":"2.0","id":cid,"method":"tools/call","params":{"name":tool,"arguments":args}}).encode(),
+        headers={"Content-Type":"application/json","x-api-key":"mcp_ak_demo","mcp-session-id":sid})
+    return json.loads(json.loads(urllib.request.urlopen(req).read().decode())["result"]["content"][0]["text"])
+
+# ── Build ──
+bd = call_openapi({"action":"trade.swap.build","params":{
+    "chain_id":CHAIN_ID, "token_in":TOKEN_IN, "token_out":TOKEN_OUT,
+    "amount_in":AMOUNT, "user_wallet":WALLET, "slippage":SLIPPAGE, "slippage_type":1
+}})
+assert bd["code"] == 0, f"Build failed: {bd}"
+utx, order_id = bd["data"]["unsigned_tx"], bd["data"]["order_id"]
+
+# ── Nonce + Gas + Sign (all via one MCP session) ──
+sid = mcp_init()
+nonce = int(mcp_call(sid,"rpc.call",{"mcp_token":MCP_TOKEN,"chain":"CHAIN","method":"eth_getTransactionCount","params":[WALLET,"pending"]},2)["result"],16)
+gas_price = int(int(mcp_call(sid,"rpc.call",{"mcp_token":MCP_TOKEN,"chain":"CHAIN","method":"eth_gasPrice","params":[]},3)["result"],16) * 1.2)
+
+raw_tx = "0x02" + rlp.encode([to_bytes(utx["chain_id"]), to_bytes(nonce), b"", to_bytes(gas_price),
+    to_bytes(utx["gas_limit"]), bytes.fromhex(utx["to"][2:].lower()), to_bytes(int(utx["value"])),
+    bytes.fromhex(utx["data"][2:]), []]).hex()
+
+signed = mcp_call(sid,"wallet.sign_transaction",{"mcp_token":MCP_TOKEN,"chain":"EVM","raw_tx":raw_tx},4)
+signed_tx = signed["signedTransaction"]
+if not signed_tx.startswith("0x"): signed_tx = "0x" + signed_tx
+
+# ── Submit ──
+sub = call_openapi({"action":"trade.swap.submit","params":{"order_id":order_id,"signed_tx_string":json.dumps([signed_tx])}})
+assert sub["code"] == 0, f"Submit failed: {sub}"
+tx_hash = sub["data"]["tx_hash"]
+print("TX:", tx_hash)
+
+# ── Poll status ──
+for i in range(12):
+    time.sleep(5)
+    sr = call_openapi({"action":"trade.swap.status","params":{"chain_id":CHAIN_ID,"order_id":order_id,"tx_hash":tx_hash}})
+    st = sr.get("data",{})
+    print(f"[{i+1}] status={st.get(\"status\")} amount_out={st.get(\"amount_out\")} err={st.get(\"error_msg\",\"\")}")
+    if st.get("status") in (200, 300, 400): break
+'
+```
+
+**Key points for Agent**:
+
+1. **Single Shell call**: Steps 2-7 MUST run in one `python3 -c '...'` with `required_permissions: ["all"]`. Never split into multiple Shell calls.
+2. **Quote separately**: Step 1 (quote) should run first as a separate call to show the user the price for confirmation. Only after user confirms, execute steps 2-7 in one batch.
+3. **Gas buffer**: Always multiply `eth_gasPrice` by 1.2 (20% buffer) for `maxFeePerGas`. ARB L2 baseFee fluctuates and without buffer the tx will fail with "max fee per gas less than block base fee".
+4. **signed_tx_string format**: Must be JSON array string `'["0x02f8..."]'`, not raw hex. Use `json.dumps([signed_tx])`.
+5. **status params**: `trade.swap.status` requires `chain_id` (int), `order_id`, and `tx_hash` (can be empty string `""`).
+6. **EIP-1559 type 2**: The signed tx must start with `0x02`. Legacy format (`0xf8`/`0xf9`) will be rejected by the OpenAPI.
+7. **Non-native token swap (ERC20→ERC20)**: Check ERC20 allowance first. If insufficient, call `trade.swap.approve_transaction` via OpenAPI, sign approve tx with MCP (nonce=N), sign swap tx (nonce=N+1), and pass both `signed_tx_string` and `signed_approve_tx_string` to submit.
+8. **Credential reading**: Read `api_key`/`secret_key` from `~/.gate-dex-openapi/config.json`, `mcp_token`/`server_url` from `~/.gate-wallet/auth.json`. Never hardcode.
+
 ---
 
 ## Common Pitfalls
@@ -404,6 +520,10 @@ swap-detail <order_id>
 13. **EVM native transfer must set `token = "ETH"`**: When calling `tx.transfer_preview` without `--token` on EVM chains (ARB/BSC/BASE/OP etc.), you MUST explicitly pass `token = "ETH"` (or `"NATIVE"`) to indicate native token. Otherwise the MCP server defaults to transferring USDT instead of native ETH. The CLI `send`/`transfer` commands now handle this automatically.
 14. **`tokens` / `wallet.get_token_list` may not show L2 balances**: The wallet API may not index assets on L2 chains (e.g. ETH/USDT on Arbitrum). To verify L2 balances, use `rpc --chain <chain>` with `eth_getBalance` (native) or `eth_call` with ERC20 `balanceOf` (0x70a08231 + padded address).
 15. **`token` param required for correct display label**: `tx.transfer_preview` defaults display to "USDT" if `token` is not passed. The CLI `send` command now auto-resolves `token` symbol via `token_list_swap_tokens`. For `transfer` (preview-only), pass `--token-symbol <sym>` explicitly if using a non-native token.
+16. **Hybrid Swap must be a single Shell call**: Never split build/sign/submit into separate Shell calls — order_id expires in ~30s. The entire build→nonce→sign→submit flow MUST run in one `python3 -c '...'` script. See "Hybrid Swap" in Typical Workflows.
+17. **Gas buffer for L2 chains**: Always multiply `eth_gasPrice` by 1.2 (20%) for `maxFeePerGas`. L2 baseFee fluctuates and without buffer the tx fails with "max fee per gas less than block base fee".
+18. **OpenAPI `signed_tx_string` must be JSON array**: Use `json.dumps(["0x02f8..."])` — not raw hex string. Otherwise submit returns error 50005.
+19. **OpenAPI numeric params**: `chain_id`, `slippage`, `slippage_type` must be numeric types (int/float), not strings. Strings cause "cannot unmarshal string into Go struct field" errors.
 
 ---
 
