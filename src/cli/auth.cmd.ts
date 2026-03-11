@@ -36,9 +36,7 @@ export function registerAuthCommands(program: Command) {
             console.log(chalk.green(`  User ID: ${stored.user_id}`));
           console.log(chalk.green(`  Provider: ${stored.provider}`));
           console.log(
-            chalk.gray(
-              `  Run ${chalk.white("logout")} to switch accounts.`,
-            ),
+            chalk.gray(`  Run ${chalk.white("logout")} to switch accounts.`),
           );
           return;
         } catch {
@@ -294,7 +292,14 @@ export function registerShortcutCommands(program: Command) {
     "查询 Gas 费用 (默认 ETH，SOL 自动构建模拟交易)",
     "tx.gas",
     async (opts, pos, mcp) => {
-      const chain = (pos[0] ?? opts.chain ?? "ETH").toUpperCase();
+      const GAS_CHAIN_ALIAS: Record<string, string> = {
+        ARB: "ARBITRUM",
+        OP: "OPTIMISM",
+        AVAX: "AVALANCHE",
+        MATIC: "POLYGON",
+      };
+      const raw = (pos[0] ?? opts.chain ?? "ETH").toUpperCase();
+      const chain = GAS_CHAIN_ALIAS[raw] ?? raw;
       const args: Record<string, unknown> = { chain };
 
       if (chain === "SOL") {
@@ -349,7 +354,19 @@ export function registerShortcutCommands(program: Command) {
       if (opts.from) args.from = opts.from;
       if (opts.to) args.to = opts.to;
       if (opts.amount) args.amount = opts.amount;
-      if (opts.token) args.token_contract = opts.token;
+      if (opts.token) {
+        if (opts.chain && opts.chain.toUpperCase() === "SOL") {
+          args.token_mint = opts.token;
+          if (opts.tokenDecimals)
+            args.token_decimals = Number(opts.tokenDecimals);
+        } else {
+          args.token_contract = opts.token;
+        }
+      } else if (opts.chain && opts.chain.toUpperCase() === "SOL") {
+        args.token = "SOL";
+      } else {
+        args.token = "ETH";
+      }
       return args;
     },
     [
@@ -357,7 +374,8 @@ export function registerShortcutCommands(program: Command) {
       ["--to <address>", "收款地址"],
       ["--amount <amount>", "金额"],
       ["--from <address>", "付款地址 (默认自动获取)"],
-      ["--token <contract>", "Token 合约地址 (原生币可不填)"],
+      ["--token <contract>", "Token 合约/Mint 地址 (原生币可不填)"],
+      ["--token-decimals <decimals>", "Token 精度 (SOL SPL 代币需要)"],
     ],
   );
   // ─── 一键转账 (Preview → Sign → Broadcast) ────────────
@@ -369,6 +387,10 @@ export function registerShortcutCommands(program: Command) {
     .option("--amount <amount>", "金额")
     .option("--from <address>", "付款地址 (默认自动获取)")
     .option("--token <contract>", "Token 合约/Mint 地址 (原生币可不填)")
+    .option(
+      "--token-decimals <decimals>",
+      "Token 精度 (SPL 代币必填或自动查询)",
+    )
     .action(async function (
       this: Command,
       opts: Record<string, string | undefined>,
@@ -399,6 +421,31 @@ export function registerShortcutCommands(program: Command) {
           return;
         }
 
+        // Auto-resolve token_decimals for SOL SPL transfers
+        let tokenDecimals: number | undefined;
+        if (opts.tokenDecimals) {
+          tokenDecimals = Number(opts.tokenDecimals);
+        } else if (opts.token && chain === "SOL") {
+          try {
+            const tokenListRes = extractToolJson<{
+              tokens?: Array<{ address?: string; decimal?: number }>;
+            }>(
+              (await mcp.callTool("token_list_swap_tokens", {
+                chain_name: "solana",
+                search: opts.token,
+              })) as Record<string, unknown>,
+            );
+            const matched = tokenListRes.tokens?.find(
+              (t) => t.address?.toLowerCase() === opts.token!.toLowerCase(),
+            );
+            if (matched?.decimal != null) {
+              tokenDecimals = matched.decimal;
+            }
+          } catch {
+            // ignore lookup failure; will fail at preview if decimals truly required
+          }
+        }
+
         // Step 1: Preview
         const previewSpinner = ora("转账预览...").start();
         const previewArgs: Record<string, unknown> = {
@@ -410,11 +457,16 @@ export function registerShortcutCommands(program: Command) {
         if (opts.token) {
           if (chain === "SOL") {
             previewArgs.token_mint = opts.token;
+            if (tokenDecimals != null) {
+              previewArgs.token_decimals = tokenDecimals;
+            }
           } else {
             previewArgs.token_contract = opts.token;
           }
         } else if (chain === "SOL") {
           previewArgs.token = "SOL";
+        } else {
+          previewArgs.token = "ETH";
         }
         let previewResult = extractToolJson<{
           key_info?: Record<string, unknown>;
@@ -444,16 +496,15 @@ export function registerShortcutCommands(program: Command) {
           `预览成功：${keyInfo.summary ?? `${opts.amount} ${token} → ${opts.to}`}`,
         );
 
-        // SOL: 获取最新 blockhash 的 unsigned_tx
+        // SOL native: refresh blockhash via get_sol_unsigned (SPL tokens skip — get_sol_unsigned only supports native SOL)
         let txToSign = unsignedTx;
-        if (chain === "SOL") {
+        if (chain === "SOL" && !opts.token) {
           const freshSpinner = ora("获取最新 blockhash...").start();
           const solArgs: Record<string, unknown> = {
             from,
             to: opts.to,
             amount: opts.amount,
           };
-          if (opts.token) solArgs.token_mint = opts.token;
           const freshResult = extractToolJson<{ unsigned_tx_hex?: string }>(
             (await mcp.callTool("tx.get_sol_unsigned", solArgs)) as Record<
               string,
@@ -533,7 +584,10 @@ export function registerShortcutCommands(program: Command) {
       if (opts.from) args.token_in = opts.from;
       if (opts.to) args.token_out = opts.to;
       if (opts.amount) args.amount = opts.amount;
-      if (opts.slippage) args.slippage = Number(opts.slippage);
+      if (opts.slippage) {
+        const raw = Number(opts.slippage);
+        args.slippage = raw >= 1 ? raw / 100 : raw;
+      }
       if (opts.nativeIn) args.native_in = Number(opts.nativeIn);
       if (opts.nativeOut) args.native_out = Number(opts.nativeOut);
       if (opts.wallet) {
@@ -581,13 +635,16 @@ export function registerShortcutCommands(program: Command) {
         (chainIdIn === 501 ? addresses?.["SOL"] : addresses?.["EVM"]) ??
         "";
 
+      const rawSlippage = Number(opts.slippage ?? "0.03");
+      const slippage = rawSlippage >= 1 ? rawSlippage / 100 : rawSlippage;
+
       const args: Record<string, unknown> = {
         chain_id_in: chainIdIn,
         chain_id_out: Number(opts.toChain ?? opts.fromChain ?? 1),
         token_in: opts.from,
         token_out: opts.to,
         amount: opts.amount,
-        slippage: Number(opts.slippage ?? "0.03"),
+        slippage,
         user_wallet: wallet,
         native_in: Number(opts.nativeIn ?? "0"),
         native_out: Number(opts.nativeOut ?? "0"),
@@ -1035,10 +1092,7 @@ interface DevicePollResponse {
   error?: string;
 }
 
-async function loginGoogleViaRest(
-  mcp: GateMcpClient,
-  serverUrl: string,
-) {
+async function loginGoogleViaRest(mcp: GateMcpClient, serverUrl: string) {
   const baseUrl = mcp.getServerBaseUrl();
   const callbackUrl = `${baseUrl}/oauth/google/device/callback`;
   const loginSpinner = ora("Starting Google OAuth login...").start();
@@ -1178,10 +1232,7 @@ async function loginGoogleViaRest(
 
 // ─── Gate OAuth 登录（REST API + 服务端回调）──────────────
 
-async function loginGateViaRest(
-  mcp: GateMcpClient,
-  serverUrl: string,
-) {
+async function loginGateViaRest(mcp: GateMcpClient, serverUrl: string) {
   const baseUrl = mcp.getServerBaseUrl();
   const loginSpinner = ora("Starting Gate OAuth login...").start();
 

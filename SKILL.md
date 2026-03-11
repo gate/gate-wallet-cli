@@ -51,9 +51,9 @@ Agent should automatically select the appropriate channel:
 
 All credentials are stored in `<project_root>/.gate-wallet/` (gitignored):
 
-| File                        | Content                        | Created by                                                        |
-| --------------------------- | ------------------------------ | ----------------------------------------------------------------- |
-| `.gate-wallet/auth.json`    | OAuth `mcp_token` (30-day TTL) | `login` command (auto)                                            |
+| File                        | Content                        | Created by                                                           |
+| --------------------------- | ------------------------------ | -------------------------------------------------------------------- |
+| `.gate-wallet/auth.json`    | OAuth `mcp_token` (30-day TTL) | `login` command (auto)                                               |
 | `.gate-wallet/openapi.json` | AK/SK credentials              | `openapi-config --set-ak <ak> --set-sk <sk>` (manual setup required) |
 
 ---
@@ -161,16 +161,16 @@ Only when `pnpm cli login` is unavailable (e.g. deps broken):
 
 ### Transfers
 
-| Command                                                              | Description                                    |
-| -------------------------------------------------------------------- | ---------------------------------------------- |
-| `send --chain <chain> --to <addr> --amount <n> [--token <contract>]` | One-shot transfer (preview → sign → broadcast) |
-| `transfer --chain <chain> --to <addr> --amount <n>`                  | Preview only (no execution)                    |
-| `gas [chain]`                                                        | Gas fee estimation                             |
-| `sol-tx --to <addr> --amount <n> [--mint <token>]`                   | Build SOL unsigned tx                          |
-| `sign-tx <raw_tx>`                                                   | Sign raw transaction (server-side)             |
-| `send-tx --chain <chain> --hex <signed_tx> --to <addr>`              | Broadcast signed tx                            |
-| `tx-detail <tx_hash>`                                                | Transaction details                            |
-| `tx-history [--page <n>] [--limit <n>]`                              | Transaction history                            |
+| Command                                                                                            | Description                                    |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `send --chain <chain> --to <addr> --amount <n> [--token <contract>] [--token-decimals <decimals>]` | One-shot transfer (preview → sign → broadcast) |
+| `transfer --chain <chain> --to <addr> --amount <n> [--token <contract>] [--token-decimals <d>]`    | Preview only (no execution)                    |
+| `gas [chain]`                                                                                      | Gas fee estimation                             |
+| `sol-tx --to <addr> --amount <n> [--mint <token>]`                                                 | Build SOL unsigned tx (native SOL only)        |
+| `sign-tx <raw_tx>`                                                                                 | Sign raw transaction (server-side)             |
+| `send-tx --chain <chain> --hex <signed_tx> --to <addr>`                                            | Broadcast signed tx                            |
+| `tx-detail <tx_hash>`                                                                              | Transaction details                            |
+| `tx-history [--page <n>] [--limit <n>]`                                                            | Transaction history                            |
 
 ### Token Approval
 
@@ -419,6 +419,40 @@ send --chain ETH --to 0x... --amount 0.1      # Execute after confirmation
 tx-detail <hash>                           # Verify on-chain
 ```
 
+### Solana SPL Token Transfer (MCP)
+
+SPL token transfer differs from native SOL and EVM ERC20. Key differences:
+
+1. **Requires `token_mint` + `token_decimals`**: The MCP `tx.transfer_preview` tool requires both fields for SPL transfers. The CLI `send` command auto-resolves `token_decimals` via `token_list_swap_tokens`, or accepts `--token-decimals` explicitly.
+2. **`tx.get_sol_unsigned` is native-SOL-only**: This tool rebuilds the unsigned tx with a fresh blockhash, but only supports native SOL transfers. For SPL tokens, the CLI skips this step and uses the `unsigned_tx_hex` from `transfer_preview` directly (blockhash valid ~90s, sufficient for immediate signing).
+3. **Recipient ATA (Associated Token Account)**: If the recipient has no ATA for the SPL token, the transaction includes ATA creation (~0.002 SOL rent). Ensure sufficient SOL balance for both gas + rent.
+
+```
+# CLI one-shot (recommended — handles decimals + signing automatically)
+send --chain SOL --to <sol_addr> --amount 0.001 --token <token_mint>
+
+# With explicit decimals
+send --chain SOL --to <sol_addr> --amount 0.001 --token <token_mint> --token-decimals 6
+
+# Preview only
+transfer --chain SOL --to <sol_addr> --amount 0.001 --token <token_mint> --token-decimals 6
+```
+
+**Fallback (Level 3 JSON-RPC)** — when CLI `call` returns 401 for `tx.transfer_preview`:
+
+```
+# 1. Initialize MCP session
+curl -s -D- -X POST {MCP_URL} -H 'Content-Type: application/json' -H 'x-api-key: mcp_ak_demo' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{...}}'
+
+# 2. Call tx.transfer_preview with token_mint + token_decimals
+curl -s -X POST {MCP_URL} -H 'mcp-session-id: {session_id}' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tx.transfer_preview","arguments":{"mcp_token":"{token}","chain":"SOL","from":"{sol_addr}","to":"{recipient}","amount":"0.001","token_mint":"{mint}","token_decimals":6}}}'
+
+# 3. Sign: wallet.sign_transaction(raw_tx=unsigned_tx_hex, chain=SOL)
+# 4. Broadcast: tx.send_raw_transaction
+```
+
 ### Swap (MCP one-shot)
 
 ```
@@ -446,8 +480,13 @@ openapi-quote --chain bsc --from - --to 0x55d3... --amount 0.1 --wallet 0x...
 6. **Always preview before execute**: All fund operations must be previewed and confirmed
 7. **Insufficient balance**: Check balance (including gas) before transfer/swap
 8. **Quote / blockhash expiry**: Quote ~30s, Solana blockhash ~90s — re-fetch if stale
-9. **Slippage settings**: Stablecoins 0.5-1%, volatile 1-3%, meme 3-5%+
+9. **Slippage settings**: Stablecoins 0.5-1%, volatile 1-3%, meme 3-5%+. MCP expects **decimal format** (0.03 = 3%). The CLI `swap`/`quote` commands auto-convert: `--slippage 3` → 0.03, `--slippage 0.03` → 0.03. Both formats are accepted.
 10. **OpenAPI credentials**: Must configure AK/SK before using `openapi-*` commands — no default keys shipped
+11. **SOL SPL transfer requires `token_decimals`**: When sending SPL tokens (TRUMP, USDC, etc.) on Solana, `tx.transfer_preview` requires both `token_mint` and `token_decimals`. The CLI `send` command auto-resolves decimals; for manual `call`, look up decimals via `token_list_swap_tokens` or `openapi-swap-tokens`
+12. **`tx.get_sol_unsigned` is native-SOL-only**: Do NOT use it for SPL token transfers — it ignores `token_mint` and builds a native SOL transfer, silently sending SOL instead of the intended SPL token
+13. **SOL SPL transfer needs extra SOL for ATA rent**: If recipient has no Associated Token Account for the SPL token, ~0.002 SOL rent is required on top of gas
+14. **EVM native transfer must set `token = "ETH"`**: When calling `tx.transfer_preview` without `--token` on EVM chains (ARB/BSC/BASE/OP etc.), you MUST explicitly pass `token = "ETH"` (or `"NATIVE"`) to indicate native token. Otherwise the MCP server defaults to transferring USDT instead of native ETH. The CLI `send`/`transfer` commands now handle this automatically.
+15. **`tokens` / `wallet.get_token_list` may not show L2 balances**: The wallet API may not index assets on L2 chains (e.g. ETH/USDT on Arbitrum). To verify L2 balances, use `rpc --chain <chain>` with `eth_getBalance` (native) or `eth_call` with ERC20 `balanceOf` (0x70a08231 + padded address).
 
 ---
 
