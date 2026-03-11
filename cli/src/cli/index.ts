@@ -54,7 +54,9 @@ function loadEnvFile(filePath: string): void {
 
 // 1) ~/.gate-wallet/.env (user-level config)
 loadEnvFile(join(homedir(), ".gate-wallet", ".env"));
-// 2) CWD/.env (project-level config, for local dev)
+// 2) Repo root .env (dev mode: cli/../.env)
+loadEnvFile(join(PKG_ROOT, "..", ".env"));
+// 3) CWD/.env (fallback)
 loadEnvFile(join(process.cwd(), ".env"));
 
 const program = new Command();

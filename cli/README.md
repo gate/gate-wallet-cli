@@ -7,6 +7,70 @@ Gate Web3 钱包命令行工具，支持**双通道**：
 
 Swap 功能两个通道均可完成。用户可指定通道，也可由 Agent 自动选择（已登录优先 MCP，未登录但有 AK/SK 则走 OpenAPI）。
 
+## 环境准备
+
+使用本工具前，请确保已安装 **Node.js >= 18** 和 **pnpm**（源码开发时需要）。
+
+### 安装 Node.js
+
+推荐使用 [nvm](https://github.com/nvm-sh/nvm) 管理 Node.js 版本：
+
+**macOS / Linux**
+
+```bash
+# 安装 nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+
+# 重新加载终端配置（或重新打开终端）
+source ~/.bashrc   # bash 用户
+source ~/.zshrc    # zsh 用户
+
+# 安装并使用 Node.js LTS
+nvm install --lts
+nvm use --lts
+
+# 验证
+node -v   # 应显示 v18+ 或 v20+
+npm -v
+```
+
+**Windows**
+
+推荐使用 [nvm-windows](https://github.com/coreybutler/nvm-windows/releases) 或直接从 [Node.js 官网](https://nodejs.org/) 下载 LTS 安装包。
+
+```powershell
+# nvm-windows 安装后
+nvm install lts
+nvm use lts
+
+# 或直接下载安装包后验证
+node -v
+npm -v
+```
+
+### 安装 pnpm（源码开发需要）
+
+如果你只通过 npm 全局安装或 npx 运行 CLI，可以跳过此步。从源码开发时需要 pnpm：
+
+```bash
+# 方式一：通过 npm 安装（推荐，已有 Node.js 即可）
+npm install -g pnpm
+
+# 方式二：通过 corepack 启用（Node.js >= 16.13 内置）
+corepack enable
+corepack prepare pnpm@latest --activate
+
+# 方式三：独立安装脚本
+curl -fsSL https://get.pnpm.io/install.sh | sh -
+
+# 验证
+pnpm -v
+```
+
+> 更多安装方式参见 [pnpm 官方文档](https://pnpm.io/installation)。
+
+---
+
 ## 安装
 
 ### 方式一：npm 全局安装（推荐）
