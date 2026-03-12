@@ -9,8 +9,7 @@
   },
   "files": [
     "dist",
-    "bin",
-    ".env.defaults"
+    "bin"
   ],
   "scripts": {
     "cli": "tsx src/cli/index.ts",
@@ -25,8 +24,14 @@
     "mcp",
     "web3"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Gate",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gate/gate-wallet-cli.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/gate/gate-wallet-cli#readme",
   "packageManager": "pnpm@10.30.3",
   "engines": {
     "node": ">=18"
