@@ -74,7 +74,7 @@ const NO_CONFIG_MSG = [
   `  pnpm cli openapi-config --set-ak YOUR_AK --set-sk YOUR_SK`,
   "",
   `  或直接编辑 ~/.gate-wallet/openapi.json`,
-  `  获取 AK/SK: https://www.gatedex.com/developer`,
+  `  获取 AK/SK: https://web3.gate.com/zh/api-manage`,
 ].join("\n");
 
 function requireClient(): GateOpenApiClient | null {
@@ -169,7 +169,7 @@ export function registerOpenApiCommands(program: Command) {
           );
         }
         console.log(
-          chalk.gray("\n  Upgrade at https://www.gatedex.com/developer"),
+          chalk.gray("\n  Upgrade at https://web3.gate.com/zh/api-manage"),
         );
       },
     );
