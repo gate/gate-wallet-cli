@@ -3,7 +3,7 @@
 Gate Web3 钱包命令行工具，支持**双通道**：
 
 - **MCP 通道**（默认）：Google / Gate OAuth 登录 → 服务端托管签名 → 钱包全功能（余额 / 转账 / Swap / 授权 / 行情）
-- **OpenAPI 通道**（免登录）：AK/SK 认证 → 用户自持私钥签名 → DEX Swap 交易。详见 [gate-dex-trade Skill](../skills/gate-dex-trade/SKILL.md)
+- **OpenAPI 通道**（免登录）：AK/SK 认证 → 用户自持私钥签名 → DEX Swap 交易。详见 [web3-wallet-skill](https://github.com/aspect-build/web3-wallet-skill) 项目中的 gate-dex-trade Skill
 
 Swap 功能两个通道均可完成。用户可指定通道，也可由 Agent 自动选择（已登录优先 MCP，未登录但有 AK/SK 则走 OpenAPI）。
 
@@ -273,7 +273,7 @@ MCP 通道（需登录，托管签名）：
 | `swap-detail <order_id>`                                 | 查询 Swap 交易详情                  |
 | `swap-history --limit 3`                                 | Swap / Bridge 历史（支持分页）      |
 
-OpenAPI 通道（免登录，自持私钥签名）也支持完整 Swap 流程，详见 [gate-dex-trade Skill](../skills/gate-dex-trade/SKILL.md)。用户说 "用 openapi swap" 时走 OpenAPI，否则默认走 MCP。
+OpenAPI 通道（免登录，自持私钥签名）也支持完整 Swap 流程，详见 [web3-wallet-skill](https://github.com/aspect-build/web3-wallet-skill) 项目中的 gate-dex-trade Skill。用户说 "用 openapi swap" 时走 OpenAPI，否则默认走 MCP。
 
 ### OpenAPI 通道命令
 
@@ -553,20 +553,13 @@ gate-wallet> sign-msg aabbccddeeff00112233445566778899 --chain EVM
 
 ## AI Agent 集成
 
-本项目通过根目录 `AGENTS.md` 实现跨平台 Agent 自动识别，支持 Cursor、Claude Code、Windsurf、VS Code Copilot、Codex、Jules 等 60+ AI Agent。
+AI Agent Skills 已迁移到独立项目 **[web3-wallet-skill](https://github.com/aspect-build/web3-wallet-skill)**，提供完整的多模块 Skill 生态（认证、资产、转账、DApp、CLI、Swap、行情）。
 
-**零配置**：clone 仓库后 Agent 自动读取 `AGENTS.md`，按指引加载完整 SKILL.md。
-
-### Skill 管理命令
+安装 Skills 后，Agent 自动识别并按 Skill 规范执行操作，支持 Cursor、Claude Code、Codex CLI、OpenCode 等 60+ AI 平台。
 
 ```bash
-gate-wallet skill              # 显示使用说明
-gate-wallet skill --path       # 输出 SKILL.md 绝对路径
-gate-wallet skill --print      # 输出 SKILL.md 内容
-```
-
-### 安装到 Cursor 全局 Skills（可选，跨项目使用）
-
-```bash
-gate-wallet skill --install ~/.cursor/skills/gate-wallet-cli
+# 克隆 skill 仓库并安装
+git clone <web3-wallet-skill-repo-url>
+cd web3-wallet-skill
+./gate-dex-wallet/install.sh          # MCP Server + Skills 路由
 ```

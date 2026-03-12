@@ -13,9 +13,8 @@ gate-wallet-cli/
 │   ├── src/                      # TypeScript 源码
 │   ├── package.json
 │   └── README.md                 # CLI 使用文档
-└── skills/                       # AI Agent Skills
-    ├── gate-wallet-cli/SKILL.md  # MCP 通道 Skill（主入口，含路由策略）
-    └── gate-dex-trade/SKILL.md   # OpenAPI 通道 Skill（DEX Swap）
+└── skills/                       # → 已迁移至 web3-wallet-skill
+    └── README.md                 # 迁移说明
 ```
 
 ## 快速开始
@@ -30,19 +29,41 @@ pnpm cli swap --from-chain 1 --from - --to 0xdAC17F958D2ee523a2206206994597C13D8
 
 详细文档见 [cli/README.md](cli/README.md)。
 
-## AI Agent 集成
+## AI Agent Skills
 
-本项目通过 `AGENTS.md`（项目根目录）实现跨平台 Agent 自动识别，支持 Cursor、Claude Code、Windsurf、VS Code Copilot、Codex、Jules、JetBrains Junie 等 60+ AI Agent。
+> Skills 已迁移到独立项目 **[web3-wallet-skill](https://github.com/aspect-build/web3-wallet-skill)**，提供更完整的多模块 Skill 生态。
 
-**无需任何安装步骤** — clone 仓库后，Agent 自动读取 `AGENTS.md` 并按指引加载完整 Skill。
+### 安装 Skills
 
-| 文件                              | 作用                                              |
-| --------------------------------- | ------------------------------------------------- |
-| `AGENTS.md`                       | 跨平台 Agent 入口，精简指引 + 引导读取 SKILL.md   |
-| `skills/gate-wallet-cli/SKILL.md` | 主 Skill，含双通道路由策略、MCP 钱包全功能        |
-| `skills/gate-dex-trade/SKILL.md`  | OpenAPI 通道 Swap 交易，用户指定 "openapi" 时触发 |
+```bash
+# 1. 克隆 skill 仓库
+git clone <web3-wallet-skill-repo-url>
+cd web3-wallet-skill
 
-如需额外安装到 Cursor 全局 skills（跨项目使用）：
+# 2. 运行安装脚本（自动配置 MCP Server + Skills 路由）
+./gate-dex-wallet/install.sh
+
+# 3. 可选：安装 gate-wallet CLI（需要 Node.js >= 18）
+./gate-dex-wallet/install_cli.sh
+```
+
+### Skill 列表
+
+| Skill | 说明 | 模块 |
+|-------|------|------|
+| 🔐 gate-dex-wallet/auth | Google OAuth 认证 | MCP |
+| 💰 gate-dex-wallet | 资产查询、交易历史 | MCP |
+| 💸 gate-dex-wallet/transfer | 转账执行 | MCP |
+| 🎯 gate-dex-wallet/dapp | DApp 交互、合约调用 | MCP |
+| 🖥️ gate-dex-wallet/cli | CLI 双通道（本项目） | CLI |
+| 🔄 gate-dex-trade | DEX Swap 交易 | MCP + OpenAPI |
+| 📊 gate-dex-market | 市场数据查询 | MCP + OpenAPI |
+
+### Agent 自动识别
+
+`web3-wallet-skill` 支持 Cursor、Claude Code、Codex CLI、OpenCode、OpenClaw 等多个 AI 平台，安装后 Agent 自动识别并按 Skill 规范执行操作。
+
+如需将 CLI Skill 安装到 Cursor 全局（跨项目使用）：
 
 ```bash
 gate-wallet skill --install ~/.cursor/skills/gate-wallet-cli

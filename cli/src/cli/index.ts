@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -11,26 +11,6 @@ import { getMcpClientSync, getServerUrl } from "../core/mcp-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(__dirname, "..", "..");
-
-function resolveSkillFile(): string {
-  const inPkg = join(PKG_ROOT, "SKILL.md");
-  if (existsSync(inPkg)) return inPkg;
-  // dev mode: cli/src/cli/ → ../../skills/gate-wallet-cli/
-  const inRepo = join(PKG_ROOT, "..", "skills", "gate-wallet-cli", "SKILL.md");
-  if (existsSync(inRepo)) return inRepo;
-  return inPkg;
-}
-
-function resolveOpenApiSkillFile(): string | null {
-  const inPkg = join(PKG_ROOT, "skills", "gate-dex-trade", "SKILL.md");
-  if (existsSync(inPkg)) return inPkg;
-  const inRepo = join(PKG_ROOT, "..", "skills", "gate-dex-trade", "SKILL.md");
-  if (existsSync(inRepo)) return inRepo;
-  return null;
-}
-
-const SKILL_FILE = resolveSkillFile();
-const OPENAPI_SKILL_FILE = resolveOpenApiSkillFile();
 
 function loadEnvFile(filePath: string): void {
   try {
@@ -69,80 +49,6 @@ program
 registerAuthCommands(program);
 registerShortcutCommands(program);
 registerOpenApiCommands(program);
-
-// ─── skill 命令 ──────────────────────────────────────────
-
-program
-  .command("skill")
-  .description("Show or install the AI Agent skill file (SKILL.md)")
-  .option("--path", "Print the absolute path to SKILL.md")
-  .option("--print", "Print SKILL.md content to stdout")
-  .option("--install <dir>", "Copy SKILL.md to a target directory")
-  .action((opts: { path?: boolean; print?: boolean; install?: string }) => {
-    if (!existsSync(SKILL_FILE)) {
-      console.error(chalk.red("SKILL.md not found in package."));
-      process.exitCode = 1;
-      return;
-    }
-
-    if (opts.path) {
-      console.log(SKILL_FILE);
-      return;
-    }
-
-    if (opts.print) {
-      process.stdout.write(readFileSync(SKILL_FILE, "utf-8"));
-      return;
-    }
-
-    if (opts.install) {
-      const targetDir = opts.install.startsWith("~")
-        ? join(homedir(), opts.install.slice(1))
-        : opts.install;
-      mkdirSync(targetDir, { recursive: true });
-      const dest = join(targetDir, "SKILL.md");
-      copyFileSync(SKILL_FILE, dest);
-      console.log(chalk.green(`✔ Installed to ${dest}`));
-
-      if (OPENAPI_SKILL_FILE) {
-        const parentDir = join(targetDir, "..", "gate-dex-trade");
-        mkdirSync(parentDir, { recursive: true });
-        const openApiDest = join(parentDir, "SKILL.md");
-        copyFileSync(OPENAPI_SKILL_FILE, openApiDest);
-        console.log(chalk.green(`✔ Installed OpenAPI skill to ${openApiDest}`));
-      }
-      return;
-    }
-
-    // Default: show path + usage guide
-    console.log(chalk.bold("\nGate Wallet CLI - Agent Skill File\n"));
-    console.log(`  ${chalk.cyan("Path:")} ${SKILL_FILE}\n`);
-    console.log(chalk.gray("Usage:\n"));
-    console.log(
-      `  ${chalk.white("gate-wallet skill --print")}          Print SKILL.md content`,
-    );
-    console.log(
-      `  ${chalk.white("gate-wallet skill --path")}           Print file path only`,
-    );
-    console.log(
-      `  ${chalk.white("gate-wallet skill --install <dir>")}  Copy to a directory\n`,
-    );
-    console.log(chalk.gray("Examples:\n"));
-    console.log(chalk.gray("  # Cursor IDE — copy to global skills folder:"));
-    console.log(
-      `  ${chalk.white("gate-wallet skill --install ~/.cursor/skills/gate-wallet-cli")}\n`,
-    );
-    console.log(
-      chalk.gray(
-        "  # Claude Desktop / Windsurf / other — copy to your project:",
-      ),
-    );
-    console.log(`  ${chalk.white("gate-wallet skill --install ./")}\n`);
-    console.log(
-      chalk.gray("  # Or just point your agent to read the file directly:"),
-    );
-    console.log(`  ${chalk.white(SKILL_FILE)}\n`);
-  });
 
 /** 递归给所有子命令设置 exitOverride，防止 REPL 中被意外退出 */
 function applyExitOverride(cmd: Command) {
