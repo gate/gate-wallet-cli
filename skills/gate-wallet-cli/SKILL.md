@@ -94,13 +94,16 @@ All credentials are stored in `~/.gate-wallet/` (user home directory):
 
 ## Agent Usage
 
-Agent should use **single-command mode** — each command runs independently and exits:
+Agent should use **single-command mode** — each command runs independently and exits.
+
+> **IMPORTANT**: Agent runs in a non-interactive shell (no stdin). Any command that prompts for confirmation (`y/N`) will hang. **Always pass `-y` / `--yes`** for commands that support it (e.g. `openapi-swap -y`). For commands without a `-y` flag, use the quote/preview step to show details to the user, get explicit confirmation in chat, then execute.
 
 ```bash
 gate-wallet balance
 gate-wallet gas ETH
 gate-wallet token-rank --chain eth
 gate-wallet call wallet.get_addresses
+gate-wallet openapi-swap --chain ETH --from - --to 0x... --amount 0.01 -y
 ```
 
 ### Login Flow (first time / token expired)
@@ -412,15 +415,17 @@ Use OpenAPI for quote/build/submit and MCP for custodial signing. This is the pr
 **CLI command** (recommended):
 
 ```bash
-# EVM example (Arbitrum)
-gate-wallet openapi-swap --chain ARB --from - --to <token_contract> --amount 0.0001 --slippage 0.03
+# EVM example (Arbitrum) — Agent MUST always pass -y
+gate-wallet openapi-swap --chain ARB --from - --to <token_contract> --amount 0.0001 --slippage 0.03 -y
 
 # Solana example (SOL → SPL token)
-gate-wallet openapi-swap --chain SOL --from - --to <token_mint> --amount 0.0001 --slippage 0.05
+gate-wallet openapi-swap --chain SOL --from - --to <token_mint> --amount 0.0001 --slippage 0.05 -y
 
 # Solana reverse (SPL token → SOL)
-gate-wallet openapi-swap --chain SOL --from <token_mint> --to - --amount 0.002 --slippage 0.05
+gate-wallet openapi-swap --chain SOL --from <token_mint> --to - --amount 0.002 --slippage 0.05 -y
 ```
+
+> **Agent MUST always pass `-y`**: Agent shell has no stdin — without `-y` the command hangs at the confirmation prompt forever. The CLI still prints the quote details before executing, so the user can see what's happening.
 
 The command handles the entire flow automatically:
 
@@ -455,7 +460,7 @@ The command handles the entire flow automatically:
 **Key points for Agent**:
 
 1. **Use the CLI command** — never construct inline Python/Node scripts for hybrid swap. The CLI handles RLP encoding, gas buffer, signing format, ERC20 approve, and timeout internally.
-2. **Quote separately if needed**: Without `-y`, the command shows the quote and waits for user confirmation before executing.
+2. **Always pass `-y`**: Agent shell has no stdin. Without `-y` the command hangs at the confirmation prompt. Show quote to user in chat first, get confirmation, then run with `-y`.
 3. **ERC20 approve handled automatically**: The CLI detects if `token_in` is an ERC20, checks on-chain allowance, and executes approve + wait confirmation before swap. No manual approve step needed.
 4. **Credential reading**: The command reads `~/.gate-dex-openapi/config.json` (OpenAPI) and `~/.gate-wallet/auth.json` (MCP) automatically.
 
@@ -483,6 +488,9 @@ The command handles the entire flow automatically:
 18. **OpenAPI `signed_tx_string` must be JSON array**: Use `json.dumps(["0x02f8..."])` — not raw hex string. Otherwise submit returns error 50005.
 19. **OpenAPI numeric params**: `chain_id`, `slippage`, `slippage_type` must be numeric types (int/float), not strings. Strings cause "cannot unmarshal string into Go struct field" errors.
 20. **Solana MCP signing format**: `wallet.sign_transaction(chain: "SOL")` expects **base58-encoded** unsigned tx (`raw_tx`), and returns base58-encoded `signedTransaction`. OpenAPI build returns base64 — the CLI converts base64→base58 automatically. OpenAPI submit for Solana expects `signed_tx_string` as JSON array of base58 strings (`'["5K8j..."]'`).
+21. **EIP-1559 `maxPriorityFeePerGas` must not be 0 on Ethereum mainnet**: Ethereum mainnet requires `maxPriorityFeePerGas >= 1 wei`. Setting it to 0 causes "transaction gas price below minimum: gas tip cap 0, minimum needed 1". The CLI now queries `eth_maxPriorityFeePerGas` via RPC and applies 1.2x buffer with a floor of 1 wei. L2 chains (ARB/BASE/OP) may accept 0 but Ethereum mainnet does not.
+22. **Agent must always pass `-y` for `openapi-swap`**: Agent shell is non-interactive (no stdin). Without `-y`, the command blocks at the `y/N` confirmation prompt forever. Always use `openapi-swap ... -y`. Show the quote details to the user in chat and get confirmation before executing with `-y`.
+23. **Ethereum mainnet swap minimum amount**: Very small amounts (e.g. 0.0001 ETH ≈ $0.20) may cause `execution reverted` at build step. On-chain routers have minimum viable trade sizes due to gas costs. Recommend at least 0.001 ETH for Ethereum mainnet swaps; L2 chains (ARB/BASE) have lower minimums.
 
 ---
 

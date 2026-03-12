@@ -32,21 +32,18 @@ pnpm cli swap --from-chain 1 --from - --to 0xdAC17F958D2ee523a2206206994597C13D8
 
 ## AI Agent 集成
 
-本项目提供两个 Skill 文件供 AI Agent 使用：
+本项目通过 `AGENTS.md`（项目根目录）实现跨平台 Agent 自动识别，支持 Cursor、Claude Code、Windsurf、VS Code Copilot、Codex、Jules、JetBrains Junie 等 60+ AI Agent。
 
-| Skill           | 路径                              | 说明                                              |
-| --------------- | --------------------------------- | ------------------------------------------------- |
-| gate-wallet-cli | `skills/gate-wallet-cli/SKILL.md` | 主 Skill，含双通道路由策略、MCP 钱包全功能        |
-| gate-dex-trade  | `skills/gate-dex-trade/SKILL.md`  | OpenAPI 通道 Swap 交易，用户指定 "openapi" 时触发 |
+**无需任何安装步骤** — clone 仓库后，Agent 自动读取 `AGENTS.md` 并按指引加载完整 Skill。
 
-安装到 Cursor IDE：
+| 文件                              | 作用                                              |
+| --------------------------------- | ------------------------------------------------- |
+| `AGENTS.md`                       | 跨平台 Agent 入口，精简指引 + 引导读取 SKILL.md   |
+| `skills/gate-wallet-cli/SKILL.md` | 主 Skill，含双通道路由策略、MCP 钱包全功能        |
+| `skills/gate-dex-trade/SKILL.md`  | OpenAPI 通道 Swap 交易，用户指定 "openapi" 时触发 |
+
+如需额外安装到 Cursor 全局 skills（跨项目使用）：
 
 ```bash
-# 一条命令安装两个 Skill（MCP + OpenAPI）
-cd cli && pnpm cli skill --install ~/.cursor/skills/gate-wallet-cli
+gate-wallet skill --install ~/.cursor/skills/gate-wallet-cli
 ```
-
-安装后自动生成：
-
-- `~/.cursor/skills/gate-wallet-cli/SKILL.md`
-- `~/.cursor/skills/gate-dex-trade/SKILL.md`

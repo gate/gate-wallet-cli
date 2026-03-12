@@ -789,9 +789,13 @@ export function registerOpenApiCommands(program: Command) {
           addrResult as Record<string, unknown>,
         );
         const isSolanaChain = resolveChainId(opts.chain) === 501;
-        const wallet = isSolanaChain ? addrData?.addresses?.SOL : addrData?.addresses?.EVM;
+        const wallet = isSolanaChain
+          ? addrData?.addresses?.SOL
+          : addrData?.addresses?.EVM;
         if (!wallet) {
-          authSpinner.fail(`无法获取 ${isSolanaChain ? "SOL" : "EVM"} 钱包地址`);
+          authSpinner.fail(
+            `无法获取 ${isSolanaChain ? "SOL" : "EVM"} 钱包地址`,
+          );
           return;
         }
         authSpinner.succeed(`钱包: ${wallet}`);
@@ -876,7 +880,9 @@ export function registerOpenApiCommands(program: Command) {
             slippage_type: 1,
           });
           if (solQuoteRes.code !== 0) {
-            execSpinner.fail(`报价失败 [${solQuoteRes.code}]: ${solQuoteRes.message}`);
+            execSpinner.fail(
+              `报价失败 [${solQuoteRes.code}]: ${solQuoteRes.message}`,
+            );
             return;
           }
           const solQ = solQuoteRes.data;
@@ -905,7 +911,9 @@ export function registerOpenApiCommands(program: Command) {
           });
 
           if (solBuildRes.code !== 0) {
-            execSpinner.fail(`Build 失败 [${solBuildRes.code}]: ${solBuildRes.message}`);
+            execSpinner.fail(
+              `Build 失败 [${solBuildRes.code}]: ${solBuildRes.message}`,
+            );
             return;
           }
 
@@ -916,7 +924,9 @@ export function registerOpenApiCommands(program: Command) {
           // Solana Step 3: Sign via MCP wallet.sign_transaction
           // MCP expects base58-encoded VersionedTransaction for SOL
           execSpinner.text = "签名 Solana 交易...";
-          const unsignedTxBase58 = base58Encode(Buffer.from(unsignedTxBase64, "base64"));
+          const unsignedTxBase58 = base58Encode(
+            Buffer.from(unsignedTxBase64, "base64"),
+          );
 
           const solSignRaw = await mcp.callTool("wallet.sign_transaction", {
             chain: "SOL",
@@ -932,7 +942,10 @@ export function registerOpenApiCommands(program: Command) {
 
           if (!signedSolTx) {
             execSpinner.fail("Solana 签名失败");
-            console.log(chalk.gray("Raw:"), JSON.stringify(solSignRaw, null, 2).slice(0, 800));
+            console.log(
+              chalk.gray("Raw:"),
+              JSON.stringify(solSignRaw, null, 2).slice(0, 800),
+            );
             return;
           }
           execSpinner.succeed("签名成功");
@@ -949,7 +962,9 @@ export function registerOpenApiCommands(program: Command) {
           });
 
           if (solSubmitRes.code !== 0) {
-            execSpinner.fail(`Submit 失败 [${solSubmitRes.code}]: ${solSubmitRes.message}`);
+            execSpinner.fail(
+              `Submit 失败 [${solSubmitRes.code}]: ${solSubmitRes.message}`,
+            );
             return;
           }
 
@@ -957,292 +972,343 @@ export function registerOpenApiCommands(program: Command) {
           execSpinner.succeed(`交易已提交: ${solTxHash}`);
 
           // Solana Step 5: Poll status
-          await pollSwapStatus(client, execSpinner, chainId, solOrderId, solTxHash, solQ.to_token);
-
+          await pollSwapStatus(
+            client,
+            execSpinner,
+            chainId,
+            solOrderId,
+            solTxHash,
+            solQ.to_token,
+            mcp,
+            chainParam,
+          );
         } else {
           // ═══════ EVM Flow ═══════
 
           // EVM Step 2: Check ERC20 Approve (before build, so quote won't expire)
-        const isNativeIn =
-          opts.from === "-" || q.from_token.is_native_token === 1;
-        if (!isNativeIn) {
-          execSpinner.text = "检查 ERC20 授权...";
+          const isNativeIn =
+            opts.from === "-" || q.from_token.is_native_token === 1;
+          if (!isNativeIn) {
+            execSpinner.text = "检查 ERC20 授权...";
 
-          // Query on-chain allowance: use quote's route_address as spender
-          // We use a preliminary build to discover the actual spender, or use the approve_transaction API
-          // which handles spender internally. First check with approve_transaction.
-          const approveRes = await client.call<{
-            data: string;
-            approve_address: string;
-            gas_limit: string;
-          }>("trade.swap.approve_transaction", {
-            user_wallet: wallet,
-            approve_amount: opts.amount,
-            quote_id: q.quote_id,
-          });
+            // Query on-chain allowance: use quote's route_address as spender
+            // We use a preliminary build to discover the actual spender, or use the approve_transaction API
+            // which handles spender internally. First check with approve_transaction.
+            const approveRes = await client.call<{
+              data: string;
+              approve_address: string;
+              gas_limit: string;
+            }>("trade.swap.approve_transaction", {
+              user_wallet: wallet,
+              approve_amount: opts.amount,
+              quote_id: q.quote_id,
+            });
 
-          if (approveRes.code === 0 && approveRes.data) {
-            const approveTx = approveRes.data;
-            // Check on-chain allowance against the approve_address (spender)
-            const ownerPadded = wallet
-              .replace("0x", "")
-              .toLowerCase()
-              .padStart(64, "0");
-            const spenderPadded = approveTx.approve_address
-              .replace("0x", "")
-              .toLowerCase()
-              .padStart(64, "0");
-            const allowanceData = `0xdd62ed3e${ownerPadded}${spenderPadded}`;
+            if (approveRes.code === 0 && approveRes.data) {
+              const approveTx = approveRes.data;
+              // Check on-chain allowance against the approve_address (spender)
+              const ownerPadded = wallet
+                .replace("0x", "")
+                .toLowerCase()
+                .padStart(64, "0");
+              const spenderPadded = approveTx.approve_address
+                .replace("0x", "")
+                .toLowerCase()
+                .padStart(64, "0");
+              const allowanceData = `0xdd62ed3e${ownerPadded}${spenderPadded}`;
 
-            const allowanceResult = extractMcpJson<{ result: string }>(
-              (await mcp.callTool("rpc.call", {
-                chain: chainParam,
-                method: "eth_call",
-                params: [{ to: opts.from, data: allowanceData }, "latest"],
-              })) as Record<string, unknown>,
-            );
-            const allowanceRaw = BigInt(allowanceResult?.result ?? "0x0");
-            const amountRaw = BigInt(
-              Math.floor(parseFloat(opts.amount) * 10 ** q.from_token.decimal),
-            );
-
-            if (allowanceRaw < amountRaw) {
-              execSpinner.text = "授权不足，签名 approve 交易...";
-
-              // Get nonce + gas for approve tx
-              const approveNonceResult = extractMcpJson<{ result: string }>(
+              const allowanceResult = extractMcpJson<{ result: string }>(
                 (await mcp.callTool("rpc.call", {
                   chain: chainParam,
-                  method: "eth_getTransactionCount",
-                  params: [wallet, "pending"],
+                  method: "eth_call",
+                  params: [{ to: opts.from, data: allowanceData }, "latest"],
                 })) as Record<string, unknown>,
               );
-              const approveNonce = parseInt(approveNonceResult!.result, 16);
-
-              const approveGasPriceResult = extractMcpJson<{ result: string }>(
-                (await mcp.callTool("rpc.call", {
-                  chain: chainParam,
-                  method: "eth_gasPrice",
-                  params: [],
-                })) as Record<string, unknown>,
-              );
-              const approveGasPrice = Math.floor(
-                parseInt(approveGasPriceResult!.result, 16) * 1.2,
+              const allowanceRaw = BigInt(allowanceResult?.result ?? "0x0");
+              const amountRaw = BigInt(
+                Math.floor(
+                  parseFloat(opts.amount) * 10 ** q.from_token.decimal,
+                ),
               );
 
-              const rawApproveTx =
-                "0x02" +
-                rlpEncodeEIP1559({
-                  chainId,
-                  nonce: approveNonce,
-                  maxPriorityFeePerGas: 0,
-                  maxFeePerGas: approveGasPrice,
-                  gasLimit: parseInt(approveTx.gas_limit, 10) || 100000,
-                  to: opts.from, // approve tx must target the token contract, not the spender
-                  value: BigInt(0),
-                  data: approveTx.data,
-                });
+              if (allowanceRaw < amountRaw) {
+                execSpinner.text = "授权不足，签名 approve 交易...";
 
-              const approveSignResult = extractMcpJson<{
-                signedTransaction: string;
-              }>(
-                (await mcp.callTool("wallet.sign_transaction", {
-                  chain: "EVM",
-                  raw_tx: rawApproveTx,
-                })) as Record<string, unknown>,
-              );
-              let signedApproveTx = approveSignResult!.signedTransaction;
-              if (!signedApproveTx.startsWith("0x"))
-                signedApproveTx = "0x" + signedApproveTx;
-
-              // Broadcast approve tx via RPC and wait for on-chain confirmation
-              execSpinner.text = "广播 approve 交易，等待链上确认...";
-              const sendApproveResult = extractMcpJson<{
-                result?: string;
-                error?: unknown;
-              }>(
-                (await mcp.callTool("rpc.call", {
-                  chain: chainParam,
-                  method: "eth_sendRawTransaction",
-                  params: [signedApproveTx],
-                })) as Record<string, unknown>,
-              );
-              const approveTxHash = sendApproveResult?.result;
-              if (!approveTxHash) {
-                execSpinner.fail(
-                  `Approve 广播失败: ${JSON.stringify(sendApproveResult)}`,
+                // Get nonce + gas for approve tx
+                const approveNonceResult = extractMcpJson<{ result: string }>(
+                  (await mcp.callTool("rpc.call", {
+                    chain: chainParam,
+                    method: "eth_getTransactionCount",
+                    params: [wallet, "pending"],
+                  })) as Record<string, unknown>,
                 );
-                return;
-              }
-              execSpinner.text = `Approve 已广播 (${approveTxHash.slice(0, 10)}...), 等待确认...`;
+                const approveNonce = parseInt(approveNonceResult!.result, 16);
 
-              let approveConfirmed = false;
-              for (let i = 0; i < 30; i++) {
-                await sleep(3000);
-                const receiptResult = extractMcpJson<{
-                  result?: { status: string } | null;
+                const approveGasPriceResult = extractMcpJson<{
+                  result: string;
                 }>(
                   (await mcp.callTool("rpc.call", {
                     chain: chainParam,
-                    method: "eth_getTransactionReceipt",
-                    params: [approveTxHash],
+                    method: "eth_gasPrice",
+                    params: [],
                   })) as Record<string, unknown>,
                 );
-                if (receiptResult?.result?.status === "0x1") {
-                  approveConfirmed = true;
-                  break;
-                } else if (receiptResult?.result?.status === "0x0") {
-                  execSpinner.fail("Approve 交易链上执行失败 (reverted)");
+                const approveGasPrice = Math.floor(
+                  parseInt(approveGasPriceResult!.result, 16) * 1.2,
+                );
+
+                const approvePriorityFeeResult = extractMcpJson<{
+                  result: string;
+                }>(
+                  (await mcp.callTool("rpc.call", {
+                    chain: chainParam,
+                    method: "eth_maxPriorityFeePerGas",
+                    params: [],
+                  })) as Record<string, unknown>,
+                );
+                const approvePriorityFee = Math.max(
+                  Math.floor(
+                    parseInt(approvePriorityFeeResult?.result ?? "0x1", 16) *
+                      1.2,
+                  ),
+                  1,
+                );
+
+                const rawApproveTx =
+                  "0x02" +
+                  rlpEncodeEIP1559({
+                    chainId,
+                    nonce: approveNonce,
+                    maxPriorityFeePerGas: approvePriorityFee,
+                    maxFeePerGas: approveGasPrice,
+                    gasLimit: parseInt(approveTx.gas_limit, 10) || 100000,
+                    to: opts.from, // approve tx must target the token contract, not the spender
+                    value: BigInt(0),
+                    data: approveTx.data,
+                  });
+
+                const approveSignResult = extractMcpJson<{
+                  signedTransaction: string;
+                }>(
+                  (await mcp.callTool("wallet.sign_transaction", {
+                    chain: "EVM",
+                    raw_tx: rawApproveTx,
+                  })) as Record<string, unknown>,
+                );
+                let signedApproveTx = approveSignResult!.signedTransaction;
+                if (!signedApproveTx.startsWith("0x"))
+                  signedApproveTx = "0x" + signedApproveTx;
+
+                // Broadcast approve tx via RPC and wait for on-chain confirmation
+                execSpinner.text = "广播 approve 交易，等待链上确认...";
+                const sendApproveResult = extractMcpJson<{
+                  result?: string;
+                  error?: unknown;
+                }>(
+                  (await mcp.callTool("rpc.call", {
+                    chain: chainParam,
+                    method: "eth_sendRawTransaction",
+                    params: [signedApproveTx],
+                  })) as Record<string, unknown>,
+                );
+                const approveTxHash = sendApproveResult?.result;
+                if (!approveTxHash) {
+                  execSpinner.fail(
+                    `Approve 广播失败: ${JSON.stringify(sendApproveResult)}`,
+                  );
                   return;
                 }
-                execSpinner.text = `等待 approve 确认... (${i + 1}/30)`;
+                execSpinner.text = `Approve 已广播 (${approveTxHash.slice(0, 10)}...), 等待确认...`;
+
+                let approveConfirmed = false;
+                for (let i = 0; i < 30; i++) {
+                  await sleep(3000);
+                  const receiptResult = extractMcpJson<{
+                    result?: { status: string } | null;
+                  }>(
+                    (await mcp.callTool("rpc.call", {
+                      chain: chainParam,
+                      method: "eth_getTransactionReceipt",
+                      params: [approveTxHash],
+                    })) as Record<string, unknown>,
+                  );
+                  if (receiptResult?.result?.status === "0x1") {
+                    approveConfirmed = true;
+                    break;
+                  } else if (receiptResult?.result?.status === "0x0") {
+                    execSpinner.fail("Approve 交易链上执行失败 (reverted)");
+                    return;
+                  }
+                  execSpinner.text = `等待 approve 确认... (${i + 1}/30)`;
+                }
+                if (!approveConfirmed) {
+                  execSpinner.fail("Approve 确认超时，请稍后重试");
+                  return;
+                }
+                execSpinner.succeed(`Approve 已确认 (${approveTxHash})`);
+                execSpinner = ora("重新获取报价并构建 swap 交易...").start();
+              } else {
+                execSpinner.text = "授权充足，跳过 approve";
               }
-              if (!approveConfirmed) {
-                execSpinner.fail("Approve 确认超时，请稍后重试");
-                return;
-              }
-              execSpinner.succeed(`Approve 已确认 (${approveTxHash})`);
-              execSpinner = ora("重新获取报价并构建 swap 交易...").start();
-            } else {
-              execSpinner.text = "授权充足，跳过 approve";
             }
+            // If approve_transaction returns error (e.g. native token), just proceed
           }
-          // If approve_transaction returns error (e.g. native token), just proceed
-        }
 
-        // Step 3: Re-quote (fresh quote_id after possible approve delay)
-        execSpinner.text = "获取最新报价...";
-        const freshQuoteRes = await client.call<{
-          amount_in: string;
-          amount_out: string;
-          min_amount_out: string;
-          slippage: string;
-          quote_id: string;
-          from_token: {
-            token_symbol: string;
-            decimal: number;
-            is_native_token: number;
-          };
-          to_token: { token_symbol: string; decimal: number };
-        }>("trade.swap.quote", {
-          chain_id: chainId,
-          token_in: opts.from,
-          token_out: opts.to,
-          amount_in: opts.amount,
-          user_wallet: wallet,
-          slippage,
-          slippage_type: 1,
-        });
-        if (freshQuoteRes.code !== 0) {
-          execSpinner.fail(
-            `报价失败 [${freshQuoteRes.code}]: ${freshQuoteRes.message}`,
-          );
-          return;
-        }
-        const freshQ = freshQuoteRes.data;
+          // Step 3: Re-quote (fresh quote_id after possible approve delay)
+          execSpinner.text = "获取最新报价...";
+          const freshQuoteRes = await client.call<{
+            amount_in: string;
+            amount_out: string;
+            min_amount_out: string;
+            slippage: string;
+            quote_id: string;
+            from_token: {
+              token_symbol: string;
+              decimal: number;
+              is_native_token: number;
+            };
+            to_token: { token_symbol: string; decimal: number };
+          }>("trade.swap.quote", {
+            chain_id: chainId,
+            token_in: opts.from,
+            token_out: opts.to,
+            amount_in: opts.amount,
+            user_wallet: wallet,
+            slippage,
+            slippage_type: 1,
+          });
+          if (freshQuoteRes.code !== 0) {
+            execSpinner.fail(
+              `报价失败 [${freshQuoteRes.code}]: ${freshQuoteRes.message}`,
+            );
+            return;
+          }
+          const freshQ = freshQuoteRes.data;
 
-        // Step 4: Build
-        execSpinner.text = "Build...";
-        const buildRes = await client.call<{
-          unsigned_tx: {
-            to: string;
-            data: string;
-            value: string;
-            chain_id: number;
-            gas_limit: number;
-          };
-          order_id: string;
-          amount_in: string;
-          amount_out: string;
-        }>("trade.swap.build", {
-          chain_id: chainId,
-          token_in: opts.from,
-          token_out: opts.to,
-          amount_in: opts.amount,
-          user_wallet: wallet,
-          slippage,
-          slippage_type: 1,
-          quote_id: freshQ.quote_id,
-        });
-
-        if (buildRes.code !== 0) {
-          execSpinner.fail(
-            `Build 失败 [${buildRes.code}]: ${buildRes.message}`,
-          );
-          return;
-        }
-        const { unsigned_tx: utx, order_id } = buildRes.data;
-
-        // Step 5: Nonce + Gas for swap tx
-        execSpinner.text = "获取 nonce + gasPrice...";
-        const nonceResult = extractMcpJson<{ result: string }>(
-          (await mcp.callTool("rpc.call", {
-            chain: chainParam,
-            method: "eth_getTransactionCount",
-            params: [wallet, "pending"],
-          })) as Record<string, unknown>,
-        );
-        const nonce = parseInt(nonceResult!.result, 16);
-
-        const gasPriceResult = extractMcpJson<{ result: string }>(
-          (await mcp.callTool("rpc.call", {
-            chain: chainParam,
-            method: "eth_gasPrice",
-            params: [],
-          })) as Record<string, unknown>,
-        );
-        const gasPrice = Math.floor(parseInt(gasPriceResult!.result, 16) * 1.2);
-
-        execSpinner.text = "签名交易...";
-
-        // Step 6: RLP encode EIP-1559 unsigned tx
-        const rawTx =
-          "0x02" +
-          rlpEncodeEIP1559({
-            chainId: utx.chain_id,
-            nonce,
-            maxPriorityFeePerGas: 0,
-            maxFeePerGas: gasPrice,
-            gasLimit: utx.gas_limit,
-            to: utx.to,
-            value: BigInt(utx.value),
-            data: utx.data,
+          // Step 4: Build
+          execSpinner.text = "Build...";
+          const buildRes = await client.call<{
+            unsigned_tx: {
+              to: string;
+              data: string;
+              value: string;
+              chain_id: number;
+              gas_limit: number;
+            };
+            order_id: string;
+            amount_in: string;
+            amount_out: string;
+          }>("trade.swap.build", {
+            chain_id: chainId,
+            token_in: opts.from,
+            token_out: opts.to,
+            amount_in: opts.amount,
+            user_wallet: wallet,
+            slippage,
+            slippage_type: 1,
+            quote_id: freshQ.quote_id,
           });
 
-        // Step 7: MCP sign
-        const signResult = extractMcpJson<{ signedTransaction: string }>(
-          (await mcp.callTool("wallet.sign_transaction", {
-            chain: "EVM",
-            raw_tx: rawTx,
-          })) as Record<string, unknown>,
-        );
-        let signedTx = signResult!.signedTransaction;
-        if (!signedTx.startsWith("0x")) signedTx = "0x" + signedTx;
+          if (buildRes.code !== 0) {
+            execSpinner.fail(
+              `Build 失败 [${buildRes.code}]: ${buildRes.message}`,
+            );
+            return;
+          }
+          const { unsigned_tx: utx, order_id } = buildRes.data;
 
-        execSpinner.text = "提交交易...";
-
-        // Step 8: Submit
-        const submitRes = await client.call<{
-          order_id: string;
-          tx_hash: string;
-        }>("trade.swap.submit", {
-          order_id,
-          signed_tx_string: JSON.stringify([signedTx]),
-        });
-
-        if (submitRes.code !== 0) {
-          execSpinner.fail(
-            `Submit 失败 [${submitRes.code}]: ${submitRes.message}`,
+          // Step 5: Nonce + Gas for swap tx
+          execSpinner.text = "获取 nonce + gasPrice...";
+          const nonceResult = extractMcpJson<{ result: string }>(
+            (await mcp.callTool("rpc.call", {
+              chain: chainParam,
+              method: "eth_getTransactionCount",
+              params: [wallet, "pending"],
+            })) as Record<string, unknown>,
           );
-          return;
-        }
-        const txHash = submitRes.data.tx_hash;
-        execSpinner.succeed(`交易已提交: ${txHash}`);
+          const nonce = parseInt(nonceResult!.result, 16);
+
+          const gasPriceResult = extractMcpJson<{ result: string }>(
+            (await mcp.callTool("rpc.call", {
+              chain: chainParam,
+              method: "eth_gasPrice",
+              params: [],
+            })) as Record<string, unknown>,
+          );
+          const gasPrice = Math.floor(
+            parseInt(gasPriceResult!.result, 16) * 1.2,
+          );
+
+          const priorityFeeResult = extractMcpJson<{ result: string }>(
+            (await mcp.callTool("rpc.call", {
+              chain: chainParam,
+              method: "eth_maxPriorityFeePerGas",
+              params: [],
+            })) as Record<string, unknown>,
+          );
+          const priorityFee = Math.max(
+            Math.floor(parseInt(priorityFeeResult?.result ?? "0x1", 16) * 1.2),
+            1,
+          );
+
+          execSpinner.text = "签名交易...";
+
+          // Step 6: RLP encode EIP-1559 unsigned tx
+          const rawTx =
+            "0x02" +
+            rlpEncodeEIP1559({
+              chainId: utx.chain_id,
+              nonce,
+              maxPriorityFeePerGas: priorityFee,
+              maxFeePerGas: gasPrice,
+              gasLimit: utx.gas_limit,
+              to: utx.to,
+              value: BigInt(utx.value),
+              data: utx.data,
+            });
+
+          // Step 7: MCP sign
+          const signResult = extractMcpJson<{ signedTransaction: string }>(
+            (await mcp.callTool("wallet.sign_transaction", {
+              chain: "EVM",
+              raw_tx: rawTx,
+            })) as Record<string, unknown>,
+          );
+          let signedTx = signResult!.signedTransaction;
+          if (!signedTx.startsWith("0x")) signedTx = "0x" + signedTx;
+
+          execSpinner.text = "提交交易...";
+
+          // Step 8: Submit
+          const submitRes = await client.call<{
+            order_id: string;
+            tx_hash: string;
+          }>("trade.swap.submit", {
+            order_id,
+            signed_tx_string: JSON.stringify([signedTx]),
+          });
+
+          if (submitRes.code !== 0) {
+            execSpinner.fail(
+              `Submit 失败 [${submitRes.code}]: ${submitRes.message}`,
+            );
+            return;
+          }
+          const txHash = submitRes.data.tx_hash;
+          execSpinner.succeed(`交易已提交: ${txHash}`);
 
           // EVM Step 9: Poll status
-          await pollSwapStatus(client, execSpinner, chainId, order_id, txHash, freshQ.to_token);
+          await pollSwapStatus(
+            client,
+            execSpinner,
+            chainId,
+            order_id,
+            txHash,
+            freshQ.to_token,
+            mcp,
+            chainParam,
+          );
         } // end EVM flow
-
       } catch (err) {
         console.error(chalk.red((err as Error).message));
       }
@@ -1393,7 +1459,8 @@ function rlpEncodeEIP1559(tx: EIP1559Tx): string {
 
 // ─── Base58 encoder (Bitcoin alphabet) ──────────────────────
 
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const BASE58_ALPHABET =
+  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 function base58Encode(bytes: Buffer): string {
   let leadingZeros = 0;
@@ -1422,36 +1489,128 @@ async function pollSwapStatus(
   orderId: string,
   txHash: string,
   toToken: { token_symbol: string; decimal: number },
+  mcp?: Awaited<ReturnType<typeof getMcpClient>>,
+  chainParam?: string,
 ): Promise<void> {
   const pollSpinner = ora("等待链上确认...").start();
   let finalStatus = "";
+  const isSolana = chainId === 501;
+
   for (let i = 0; i < 24; i++) {
     await sleep(5000);
-    const statusRes = await client.call<{
-      status: number;
-      amount_out: string;
-      error_code: number;
-      error_msg: string;
-      tx_hash_explorer_url: string;
-    }>("trade.swap.status", { chain_id: chainId, order_id: orderId, tx_hash: txHash });
 
-    const sd = statusRes.data;
-    if (!sd) continue;
-
-    if (sd.status === 200) {
-      const outHuman = formatTokenAmount(sd.amount_out, toToken.decimal);
-      pollSpinner.succeed(`Swap 成功! 收到 ${outHuman} ${toToken.token_symbol}`);
-      finalStatus = "success";
-      break;
-    } else if (sd.status === 300 || sd.status === 400) {
-      pollSpinner.fail(`Swap 失败: ${sd.error_msg || "unknown error"}`);
-      finalStatus = "failed";
-      break;
-    } else if (sd.error_code && sd.error_code !== 0) {
-      pollSpinner.fail(`Swap 失败: ${sd.error_msg}`);
-      finalStatus = "failed";
-      break;
+    // EVM: check on-chain receipt directly via MCP RPC (faster than OpenAPI status)
+    if (!isSolana && mcp && chainParam) {
+      try {
+        const receiptResult = extractMcpJson<{
+          result?: { status: string; gasUsed?: string } | null;
+        }>(
+          (await mcp.callTool("rpc.call", {
+            chain: chainParam,
+            method: "eth_getTransactionReceipt",
+            params: [txHash],
+          })) as Record<string, unknown>,
+        );
+        if (receiptResult?.result?.status === "0x1") {
+          pollSpinner.succeed(`Swap 成功! (链上已确认)`);
+          finalStatus = "success";
+          break;
+        } else if (receiptResult?.result?.status === "0x0") {
+          pollSpinner.fail("Swap 失败: 链上交易 reverted");
+          finalStatus = "failed";
+          break;
+        }
+      } catch {
+        // RPC check failed, fall through to OpenAPI status
+      }
     }
+
+    // Solana: query tx detail via MCP (faster than OpenAPI status)
+    if (isSolana && mcp) {
+      try {
+        const rawDetail = (await mcp.callTool("tx.detail", {
+          hash_id: txHash,
+        })) as Record<string, unknown>;
+        const detailResult = extractMcpJson<
+          | { status?: string; state?: string; tx_status?: string }
+          | Array<{ status?: string; state?: string; tx_status?: string }>
+        >(rawDetail);
+        const detail = Array.isArray(detailResult) ? detailResult[0] : detailResult;
+        const detailStatus = (
+          detail?.status ??
+          detail?.state ??
+          detail?.tx_status ??
+          ""
+        ).toLowerCase();
+        if (
+          detailStatus === "success" ||
+          detailStatus === "confirmed" ||
+          detailStatus === "finalized"
+        ) {
+          pollSpinner.succeed(`Swap 成功! (链上已确认)`);
+          finalStatus = "success";
+          break;
+        } else if (
+          detailStatus === "failed" ||
+          detailStatus === "error" ||
+          detailStatus === "reverted"
+        ) {
+          pollSpinner.fail(`Swap 失败: 链上交易 ${detailStatus}`);
+          finalStatus = "failed";
+          break;
+        }
+      } catch {
+        // MCP detail check failed, fall through to OpenAPI status
+      }
+    }
+
+    // Fallback: use OpenAPI status API
+    try {
+      const statusRes = await client.call<{
+        status: number;
+        amount_out: string;
+        error_code: number;
+        error_msg: string;
+        tx_hash_explorer_url: string;
+      }>("trade.swap.status", {
+        chain_id: chainId,
+        order_id: orderId,
+        tx_hash: txHash,
+      });
+
+      const sd = statusRes.data;
+      if (sd) {
+        // status: 0=pending, 1=success, 2/3=failed; legacy: 200=success, 300/400=failed
+        if (sd.status === 200 || sd.status === 1) {
+          const outHuman = sd.amount_out
+            ? formatTokenAmount(sd.amount_out, toToken.decimal)
+            : null;
+          pollSpinner.succeed(
+            outHuman
+              ? `Swap 成功! 收到 ${outHuman} ${toToken.token_symbol}`
+              : `Swap 成功! (链上已确认)`,
+          );
+          finalStatus = "success";
+          break;
+        } else if (
+          sd.status === 300 ||
+          sd.status === 400 ||
+          sd.status === 2 ||
+          sd.status === 3
+        ) {
+          pollSpinner.fail(`Swap 失败: ${sd.error_msg || "unknown error"}`);
+          finalStatus = "failed";
+          break;
+        } else if (sd.error_code && sd.error_code !== 0) {
+          pollSpinner.fail(`Swap 失败: ${sd.error_msg}`);
+          finalStatus = "failed";
+          break;
+        }
+      }
+    } catch {
+      // OpenAPI status check failed, continue polling
+    }
+
     pollSpinner.text = `等待链上确认... (${i + 1}/24)`;
   }
 

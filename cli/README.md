@@ -553,9 +553,11 @@ gate-wallet> sign-msg aabbccddeeff00112233445566778899 --chain EVM
 
 ## AI Agent 集成
 
-本项目提供了 `SKILL.md` 文件，包含完整的 Agent 使用指南（命令参考、工作流、安全规则等）。安装后通过 `gate-wallet skill` 命令管理。
+本项目通过根目录 `AGENTS.md` 实现跨平台 Agent 自动识别，支持 Cursor、Claude Code、Windsurf、VS Code Copilot、Codex、Jules 等 60+ AI Agent。
 
-### 查看 Skill 信息
+**零配置**：clone 仓库后 Agent 自动读取 `AGENTS.md`，按指引加载完整 SKILL.md。
+
+### Skill 管理命令
 
 ```bash
 gate-wallet skill              # 显示使用说明
@@ -563,35 +565,8 @@ gate-wallet skill --path       # 输出 SKILL.md 绝对路径
 gate-wallet skill --print      # 输出 SKILL.md 内容
 ```
 
-### 安装到 AI IDE
-
-根据你使用的 IDE / Agent 选择对应方式：
-
-**Cursor IDE**
+### 安装到 Cursor 全局 Skills（可选，跨项目使用）
 
 ```bash
 gate-wallet skill --install ~/.cursor/skills/gate-wallet-cli
-```
-
-安装后 Cursor Agent 会自动发现并使用该 Skill。
-
-**Claude Desktop / Windsurf / 其他 AI IDE**
-
-```bash
-# 复制到当前项目目录
-gate-wallet skill --install ./
-
-# 或复制到任意你希望的位置
-gate-wallet skill --install ~/my-skills/gate-wallet
-```
-
-然后在对应 IDE 的配置中指向该文件路径即可。
-
-**直接引用（无需复制）**
-
-也可以让 Agent 直接读取全局安装包中的 SKILL.md：
-
-```bash
-# 获取路径，然后告诉 Agent 读取这个文件
-gate-wallet skill --path
 ```
