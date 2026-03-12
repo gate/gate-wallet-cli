@@ -61,7 +61,7 @@ Or configure manually:
 | `~/.gate-wallet/auth.json`        | OAuth token (auto-generated) |
 | `~/.gate-dex-openapi/config.json` | OpenAPI AK/SK credentials    |
 
-AK/SK 可在 [Gate Web3 API 管理](https://web3.gate.com/zh/api-manage) 创建。
+Create your AK/SK at [Gate Web3 API Management](https://web3.gate.com/zh/api-manage).
 
 ## Usage examples
 
