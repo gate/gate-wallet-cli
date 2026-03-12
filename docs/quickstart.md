@@ -58,7 +58,7 @@ gate-wallet openapi-token-rank --chain eth --limit 10
 gate-wallet openapi-token-risk --chain eth --address 0x...
 ```
 
-Get your AK/SK at [Gate DEX Developer](https://www.gatedex.com/developer).
+Get your AK/SK at [Gate Web3 API Management](https://web3.gate.com/zh/api-manage).
 
 ## Interactive REPL
 

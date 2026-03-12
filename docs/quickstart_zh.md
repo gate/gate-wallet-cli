@@ -58,7 +58,7 @@ gate-wallet openapi-token-rank --chain eth --limit 10
 gate-wallet openapi-token-risk --chain eth --address 0x...
 ```
 
-前往 [Gate DEX Developer](https://www.gatedex.com/developer) 创建 AK/SK。
+前往 [Gate Web3 API 管理](https://web3.gate.com/zh/api-manage) 创建 AK/SK。
 
 ## 交互模式
 
