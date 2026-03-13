@@ -1,0 +1,59 @@
+name: Tag & Publish to npm
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@10.30.3 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Get package version
+        id: pkg
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag exists
+        id: check
+        working-directory: .
+        run: |
+          if git rev-parse "${{ steps.pkg.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Git tag
+        if: steps.check.outputs.exists == 'false'
+        working-directory: .
+        run: |
+          git tag ${{ steps.pkg.outputs.version }}
+          git push origin ${{ steps.pkg.outputs.version }}
+
+      - name: Publish to npm
+        if: steps.check.outputs.exists == 'false'
+        run: npm publish --access public
