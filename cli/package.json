@@ -15,7 +15,8 @@
     "cli": "tsx src/cli/index.ts",
     "build": "tsc && chmod +x bin/gate-wallet.js",
     "dev": "tsx --watch src/cli/index.ts",
-    "prepublishOnly": "cp ../README.md ./README.md && npm run build"
+    "prepublishOnly": "cp ../README.md ./README.md && npm run build",
+    "preuninstall": "node ./bin/uninstall.cjs"
   },
   "keywords": [
     "gate",
