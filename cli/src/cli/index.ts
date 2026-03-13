@@ -11,6 +11,7 @@ import { getMcpClientSync, getServerUrl } from "../core/mcp-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(__dirname, "..", "..");
+const pkg = JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf-8"));
 
 function loadEnvFile(filePath: string): void {
   try {
@@ -44,7 +45,7 @@ const program = new Command();
 program
   .name("gate-wallet")
   .description("Gate Wallet CLI - MCP Custodial Wallet")
-  .version("1.0.0");
+  .version(pkg.version, "-v, --version");
 
 registerAuthCommands(program);
 registerShortcutCommands(program);
