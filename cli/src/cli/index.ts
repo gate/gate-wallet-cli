@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -50,6 +50,24 @@ program
 registerAuthCommands(program);
 registerShortcutCommands(program);
 registerOpenApiCommands(program);
+
+program
+  .command("cleanup")
+  .description("清理本地配置文件 (~/.gate-wallet, ~/.gate-dex-openapi)")
+  .action(() => {
+    const dirs = [
+      join(homedir(), ".gate-wallet"),
+      join(homedir(), ".gate-dex-openapi"),
+    ];
+    for (const dir of dirs) {
+      if (existsSync(dir)) {
+        rmSync(dir, { recursive: true, force: true });
+        console.log(chalk.green(`已删除 ${dir}`));
+      } else {
+        console.log(chalk.gray(`${dir} 不存在，跳过`));
+      }
+    }
+  });
 
 /** 递归给所有子命令设置 exitOverride，防止 REPL 中被意外退出 */
 function applyExitOverride(cmd: Command) {
