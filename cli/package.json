@@ -1,6 +1,6 @@
 {
   "name": "gate-wallet-cli",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Gate Wallet CLI - MCP Custodial Wallet Management Tool",
   "type": "module",
   "main": "dist/cli/index.js",
@@ -15,7 +15,8 @@
     "cli": "tsx src/cli/index.ts",
     "build": "tsc && chmod +x bin/gate-wallet.js",
     "dev": "tsx --watch src/cli/index.ts",
-    "prepublishOnly": "cp ../README.md ./README.md && npm run build"
+    "prepublishOnly": "cp ../README.md ./README.md && npm run build",
+    "preuninstall": "node ./bin/uninstall.cjs"
   },
   "keywords": [
     "gate",
