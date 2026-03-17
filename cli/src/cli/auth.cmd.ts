@@ -255,13 +255,13 @@ export function registerShortcutCommands(program: Command) {
   }
 
   // ─── Wallet ──────────────────────────────────────────────
-  shortcut("balance", "查询总资产余额", "wallet.get_total_asset");
-  shortcut("address", "查询钱包地址", "wallet.get_addresses");
-  shortcut("tokens", "查询 token 列表和余额", "wallet.get_token_list");
+  shortcut("balance", "查询总资产余额", "dex_wallet_get_total_asset");
+  shortcut("address", "查询钱包地址", "dex_wallet_get_addresses");
+  shortcut("tokens", "查询 token 列表和余额", "dex_wallet_get_token_list");
   shortcut(
     "sign-msg",
     "签名消息 (必须为 32 位 hex 字符串，如 aabbccddeeff00112233445566778899)",
-    "wallet.sign_message",
+    "dex_wallet_sign_message",
     (opts, pos) => {
       const msg = pos[0] ?? "";
       if (!/^[0-9a-fA-F]{32}$/.test(msg)) {
@@ -280,7 +280,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "sign-tx",
     "签名原始交易",
-    "wallet.sign_transaction",
+    "dex_wallet_sign_transaction",
     (_opts, pos) => ({ raw_tx: pos[0] }),
     undefined,
     "<raw_tx>",
@@ -290,7 +290,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "gas",
     "查询 Gas 费用 (默认 ETH，SOL 自动构建模拟交易)",
-    "tx.gas",
+    "dex_tx_gas",
     async (opts, pos, mcp) => {
       const GAS_CHAIN_ALIAS: Record<string, string> = {
         ARB: "ARBITRUM",
@@ -303,7 +303,7 @@ export function registerShortcutCommands(program: Command) {
       const args: Record<string, unknown> = { chain };
 
       if (chain === "SOL") {
-        const addrRaw = await mcp!.callTool("wallet.get_addresses", {});
+        const addrRaw = await mcp!.callTool("dex_wallet_get_addresses", {});
         const addrData = extractToolJson<{
           addresses?: Record<string, string>;
         }>(addrRaw as Record<string, unknown>);
@@ -315,7 +315,7 @@ export function registerShortcutCommands(program: Command) {
         if (opts.data) {
           args.data = opts.data;
         } else {
-          const unsignedRaw = await mcp!.callTool("tx.get_sol_unsigned", {
+          const unsignedRaw = await mcp!.callTool("dex_tx_get_sol_unsigned", {
             from,
             to,
             amount: opts.amount ?? "0.000001",
@@ -347,7 +347,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "transfer",
     "转账预览",
-    "tx.transfer_preview",
+    "dex_tx_transfer_preview",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain.toUpperCase();
@@ -408,7 +408,7 @@ export function registerShortcutCommands(program: Command) {
           account_id?: string;
           addresses?: Record<string, string>;
         }>(
-          (await mcp.callTool("wallet.get_addresses", {})) as Record<
+          (await mcp.callTool("dex_wallet_get_addresses", {})) as Record<
             string,
             unknown
           >,
@@ -441,7 +441,7 @@ export function registerShortcutCommands(program: Command) {
                 symbol?: string;
               }>;
             }>(
-              (await mcp.callTool("token_list_swap_tokens", {
+              (await mcp.callTool("dex_token_list_swap_tokens", {
                 chain_name: "solana",
                 search: opts.token,
               })) as Record<string, unknown>,
@@ -465,7 +465,7 @@ export function registerShortcutCommands(program: Command) {
             const tokenListRes = extractToolJson<{
               tokens?: Array<{ address?: string; symbol?: string }>;
             }>(
-              (await mcp.callTool("token_list_swap_tokens", {
+              (await mcp.callTool("dex_token_list_swap_tokens", {
                 chain_name: chainName,
                 search: opts.token,
               })) as Record<string, unknown>,
@@ -511,7 +511,7 @@ export function registerShortcutCommands(program: Command) {
           unsigned_tx_hex?: string;
           confirm_message?: string;
         }>(
-          (await mcp.callTool("tx.transfer_preview", previewArgs)) as Record<
+          (await mcp.callTool("dex_tx_transfer_preview", previewArgs)) as Record<
             string,
             unknown
           >,
@@ -544,7 +544,7 @@ export function registerShortcutCommands(program: Command) {
             amount: opts.amount,
           };
           const freshResult = extractToolJson<{ unsigned_tx_hex?: string }>(
-            (await mcp.callTool("tx.get_sol_unsigned", solArgs)) as Record<
+            (await mcp.callTool("dex_tx_get_sol_unsigned", solArgs)) as Record<
               string,
               unknown
             >,
@@ -564,7 +564,7 @@ export function registerShortcutCommands(program: Command) {
           signedTransaction?: string;
           signature?: string;
         }>(
-          (await mcp.callTool("wallet.sign_transaction", {
+          (await mcp.callTool("dex_wallet_sign_transaction", {
             chain: signChain,
             raw_tx: txToSign,
           })) as Record<string, unknown>,
@@ -584,7 +584,7 @@ export function registerShortcutCommands(program: Command) {
           hash?: string;
           explorer_url?: string;
         }>(
-          (await mcp.callTool("tx.send_raw_transaction", {
+          (await mcp.callTool("dex_tx_send_raw_transaction", {
             chain,
             signed_tx: signedTx,
             account_id: accountId,
@@ -614,7 +614,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "quote",
     "获取兑换报价 (ETH→USDT: --from-chain 1 --to-chain 1 --from - --to 0xdAC1...ec7 --native-in 1 --native-out 0)",
-    "tx.quote",
+    "dex_tx_quote",
     async (opts, _pos, mcp) => {
       const args: Record<string, unknown> = {};
       if (opts.fromChain) args.chain_id_in = Number(opts.fromChain);
@@ -632,7 +632,7 @@ export function registerShortcutCommands(program: Command) {
         args.user_wallet = opts.wallet;
       } else {
         const addrRes = (await mcp!.callTool(
-          "wallet.get_addresses",
+          "dex_wallet_get_addresses",
           {},
         )) as Record<string, unknown>;
         const addresses = addrRes.addresses as
@@ -659,10 +659,10 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "swap",
     "一键兑换 (Quote→Build→Sign→Submit)",
-    "tx.swap",
+    "dex_tx_swap",
     async (opts, _pos, mcp) => {
       const addrRes = (await mcp!.callTool(
-        "wallet.get_addresses",
+        "dex_wallet_get_addresses",
         {},
       )) as Record<string, unknown>;
       const accountId = addrRes.account_id as string;
@@ -707,7 +707,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "swap-detail",
     "查询兑换交易详情",
-    "tx.swap_detail",
+    "dex_tx_swap_detail",
     (_opts, pos) => ({ tx_order_id: pos[0] }),
     undefined,
     "<order_id>",
@@ -715,12 +715,12 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "send-tx",
     "广播已签名交易（自动获取 account_id 和 address）",
-    "tx.send_raw_transaction",
+    "dex_tx_send_raw_transaction",
     async (opts, _pos, mcp) => {
       const addrRes = (await mcp!.callTool(
-        "wallet.get_addresses",
-        {},
-      )) as Record<string, unknown>;
+          "dex_wallet_get_addresses",
+          {},
+        )) as Record<string, unknown>;
       const accountId = addrRes.account_id as string;
       const chain = (opts.chain ?? "ETH").toUpperCase();
       const addresses = addrRes.addresses as Record<string, string> | undefined;
@@ -752,7 +752,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "tx-detail",
     "查询交易详情 (by hash)",
-    "tx.detail",
+    "dex_tx_detail",
     (_opts, pos) => ({ hash_id: pos[0] }),
     undefined,
     "<tx_hash>",
@@ -760,7 +760,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "tx-history",
     "查询交易历史",
-    "tx.list",
+    "dex_tx_list",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.page) args.page_num = opts.page;
@@ -775,7 +775,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "swap-history",
     "查询 Swap/Bridge 交易历史",
-    "tx.history_list",
+    "dex_tx_history_list",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.page) args.page_num = Number(opts.page);
@@ -790,7 +790,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "sol-tx",
     "构建 Solana 未签名转账交易",
-    "tx.get_sol_unsigned",
+    "dex_tx_get_sol_unsigned",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.to) args.to_address = opts.to;
@@ -809,7 +809,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "kline",
     "查询 K 线数据",
-    "market_get_kline",
+    "dex_market_get_kline",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain;
@@ -826,7 +826,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "liquidity",
     "查询流动性池事件",
-    "market_get_pair_liquidity",
+    "dex_market_get_pair_liquidity",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain;
@@ -841,7 +841,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "tx-stats",
     "查询交易量统计 (5m/1h/4h/24h)",
-    "market_get_tx_stats",
+    "dex_market_get_tx_stats",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain;
@@ -856,7 +856,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "swap-tokens",
     "查询链上可兑换 Token 列表",
-    "token_list_swap_tokens",
+    "dex_token_list_swap_tokens",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain;
@@ -871,7 +871,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "bridge-tokens",
     "查询跨链桥目标 Token",
-    "token_list_cross_chain_bridge_tokens",
+    "dex_token_list_cross_chain_bridge_tokens",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.srcChain) args.source_chain = opts.srcChain;
@@ -890,7 +890,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "token-info",
     "查询 Token 详情 (价格/市值/持仓分布)",
-    "token_get_coin_info",
+    "dex_token_get_coin_info",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain;
@@ -905,7 +905,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "token-risk",
     "查询 Token 安全审计信息",
-    "token_get_risk_info",
+    "dex_token_get_risk_info",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain;
@@ -920,7 +920,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "token-rank",
     "Token 涨跌幅排行榜 (24h)",
-    "token_ranking",
+    "dex_token_ranking",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain;
@@ -937,7 +937,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "new-tokens",
     "按创建时间筛选新 Token",
-    "token_get_coins_range_by_created_at",
+    "dex_token_get_coins_range_by_created_at",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain;
@@ -956,7 +956,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "chain-config",
     "查询链配置 (networkKey, endpoint, chainID)",
-    "chain.config",
+    "dex_chain_config",
     (_opts, pos) => (pos[0] ? { chain: pos[0].toUpperCase() } : {}),
     undefined,
     "[chain]",
@@ -964,7 +964,7 @@ export function registerShortcutCommands(program: Command) {
   shortcut(
     "rpc",
     "执行 JSON-RPC 调用 (eth_blockNumber, eth_getBalance...)",
-    "rpc.call",
+    "dex_rpc_call",
     (opts) => {
       const args: Record<string, unknown> = {};
       if (opts.chain) args.chain = opts.chain.toUpperCase();
@@ -1466,7 +1466,7 @@ async function reportWalletAddresses(mcp: GateMcpClient): Promise<void> {
   const reportSpinner = ora("Reporting wallet addresses...").start();
 
   try {
-    const addrResult = await mcp.callTool("wallet.get_addresses");
+    const addrResult = await mcp.callTool("dex_wallet_get_addresses");
     const addrData = parseToolResult<WalletAddresses>(addrResult);
 
     if (!addrData?.addresses || Object.keys(addrData.addresses).length === 0) {
@@ -1495,7 +1495,7 @@ async function reportWalletAddresses(mcp: GateMcpClient): Promise<void> {
       },
     ];
 
-    const reportResult = await mcp.callTool("agentic.report", { wallets });
+    const reportResult = await mcp.callTool("dex_agentic_report", { wallets });
     const report = parseToolResult<{
       wallets?: Array<{ walletID: string; accountID: string[] }>;
     }>(reportResult);

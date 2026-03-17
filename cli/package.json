@@ -15,6 +15,7 @@
     "cli": "tsx src/cli/index.ts",
     "build": "tsc && chmod +x bin/gate-wallet.js",
     "dev": "tsx --watch src/cli/index.ts",
+    "test:mcp": "MCP_URL=https://wallet-service-mcp-test.gateweb3.cc/mcp tsx src/test/mcp-tools.test.ts",
     "prepublishOnly": "cp ../README.md ./README.md && npm run build",
     "preuninstall": "node ./bin/uninstall.cjs"
   },

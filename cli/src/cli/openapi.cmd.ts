@@ -784,7 +784,7 @@ export function registerOpenApiCommands(program: Command) {
         }
         mcp.setMcpToken(stored.mcp_token);
 
-        const addrResult = await mcp.callTool("wallet.get_addresses", {});
+        const addrResult = await mcp.callTool("dex_wallet_get_addresses", {});
         const addrData = extractMcpJson<{ addresses?: Record<string, string> }>(
           addrResult as Record<string, unknown>,
         );
@@ -928,7 +928,7 @@ export function registerOpenApiCommands(program: Command) {
             Buffer.from(unsignedTxBase64, "base64"),
           );
 
-          const solSignRaw = await mcp.callTool("wallet.sign_transaction", {
+          const solSignRaw = await mcp.callTool("dex_wallet_sign_transaction", {
             chain: "SOL",
             raw_tx: unsignedTxBase58,
           });
@@ -1018,7 +1018,7 @@ export function registerOpenApiCommands(program: Command) {
               const allowanceData = `0xdd62ed3e${ownerPadded}${spenderPadded}`;
 
               const allowanceResult = extractMcpJson<{ result: string }>(
-                (await mcp.callTool("rpc.call", {
+                (await mcp.callTool("dex_rpc_call", {
                   chain: chainParam,
                   method: "eth_call",
                   params: [{ to: opts.from, data: allowanceData }, "latest"],
@@ -1036,7 +1036,7 @@ export function registerOpenApiCommands(program: Command) {
 
                 // Get nonce + gas for approve tx
                 const approveNonceResult = extractMcpJson<{ result: string }>(
-                  (await mcp.callTool("rpc.call", {
+                  (await mcp.callTool("dex_rpc_call", {
                     chain: chainParam,
                     method: "eth_getTransactionCount",
                     params: [wallet, "pending"],
@@ -1047,7 +1047,7 @@ export function registerOpenApiCommands(program: Command) {
                 const approveGasPriceResult = extractMcpJson<{
                   result: string;
                 }>(
-                  (await mcp.callTool("rpc.call", {
+                  (await mcp.callTool("dex_rpc_call", {
                     chain: chainParam,
                     method: "eth_gasPrice",
                     params: [],
@@ -1060,7 +1060,7 @@ export function registerOpenApiCommands(program: Command) {
                 const approvePriorityFeeResult = extractMcpJson<{
                   result: string;
                 }>(
-                  (await mcp.callTool("rpc.call", {
+                  (await mcp.callTool("dex_rpc_call", {
                     chain: chainParam,
                     method: "eth_maxPriorityFeePerGas",
                     params: [],
@@ -1090,7 +1090,7 @@ export function registerOpenApiCommands(program: Command) {
                 const approveSignResult = extractMcpJson<{
                   signedTransaction: string;
                 }>(
-                  (await mcp.callTool("wallet.sign_transaction", {
+                  (await mcp.callTool("dex_wallet_sign_transaction", {
                     chain: "EVM",
                     raw_tx: rawApproveTx,
                   })) as Record<string, unknown>,
@@ -1105,7 +1105,7 @@ export function registerOpenApiCommands(program: Command) {
                   result?: string;
                   error?: unknown;
                 }>(
-                  (await mcp.callTool("rpc.call", {
+                  (await mcp.callTool("dex_rpc_call", {
                     chain: chainParam,
                     method: "eth_sendRawTransaction",
                     params: [signedApproveTx],
@@ -1126,7 +1126,7 @@ export function registerOpenApiCommands(program: Command) {
                   const receiptResult = extractMcpJson<{
                     result?: { status: string } | null;
                   }>(
-                    (await mcp.callTool("rpc.call", {
+                    (await mcp.callTool("dex_rpc_call", {
                       chain: chainParam,
                       method: "eth_getTransactionReceipt",
                       params: [approveTxHash],
@@ -1220,7 +1220,7 @@ export function registerOpenApiCommands(program: Command) {
           // Step 5: Nonce + Gas for swap tx
           execSpinner.text = "获取 nonce + gasPrice...";
           const nonceResult = extractMcpJson<{ result: string }>(
-            (await mcp.callTool("rpc.call", {
+            (await mcp.callTool("dex_rpc_call", {
               chain: chainParam,
               method: "eth_getTransactionCount",
               params: [wallet, "pending"],
@@ -1229,7 +1229,7 @@ export function registerOpenApiCommands(program: Command) {
           const nonce = parseInt(nonceResult!.result, 16);
 
           const gasPriceResult = extractMcpJson<{ result: string }>(
-            (await mcp.callTool("rpc.call", {
+            (await mcp.callTool("dex_rpc_call", {
               chain: chainParam,
               method: "eth_gasPrice",
               params: [],
@@ -1240,7 +1240,7 @@ export function registerOpenApiCommands(program: Command) {
           );
 
           const priorityFeeResult = extractMcpJson<{ result: string }>(
-            (await mcp.callTool("rpc.call", {
+            (await mcp.callTool("dex_rpc_call", {
               chain: chainParam,
               method: "eth_maxPriorityFeePerGas",
               params: [],
@@ -1269,7 +1269,7 @@ export function registerOpenApiCommands(program: Command) {
 
           // Step 7: MCP sign
           const signResult = extractMcpJson<{ signedTransaction: string }>(
-            (await mcp.callTool("wallet.sign_transaction", {
+            (await mcp.callTool("dex_wallet_sign_transaction", {
               chain: "EVM",
               raw_tx: rawTx,
             })) as Record<string, unknown>,
@@ -1505,7 +1505,7 @@ async function pollSwapStatus(
         const receiptResult = extractMcpJson<{
           result?: { status: string; gasUsed?: string } | null;
         }>(
-          (await mcp.callTool("rpc.call", {
+          (await mcp.callTool("dex_rpc_call", {
             chain: chainParam,
             method: "eth_getTransactionReceipt",
             params: [txHash],
@@ -1528,7 +1528,7 @@ async function pollSwapStatus(
     // Solana: query tx detail via MCP (faster than OpenAPI status)
     if (isSolana && mcp) {
       try {
-        const rawDetail = (await mcp.callTool("tx.detail", {
+        const rawDetail = (await mcp.callTool("dex_tx_detail", {
           hash_id: txHash,
         })) as Record<string, unknown>;
         const detailResult = extractMcpJson<
