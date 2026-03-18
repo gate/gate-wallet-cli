@@ -106,19 +106,19 @@ export class GateMcpClient {
   // ─── 认证 Tools（托管钱包用）──────────────────────────
 
   async authGateLoginStart() {
-    return this.callTool("auth.gate_login_start");
+    return this.callTool("dex_auth_gate_login_start");
   }
 
   async authGateLoginPoll(flowId: string) {
-    return this.callTool("auth.gate_login_poll", { flow_id: flowId });
+    return this.callTool("dex_auth_gate_login_poll", { flow_id: flowId });
   }
 
   async authGoogleLoginStart() {
-    return this.callTool("auth.google_login_start");
+    return this.callTool("dex_auth_google_login_start");
   }
 
   async authGoogleLoginPoll(flowId: string) {
-    return this.callTool("auth.google_login_poll", { flow_id: flowId });
+    return this.callTool("dex_auth_google_login_poll", { flow_id: flowId });
   }
 
   /**
@@ -131,8 +131,8 @@ export class GateMcpClient {
   ) {
     const tool =
       provider === "google"
-        ? "auth.login_google_wallet"
-        : "auth.login_gate_wallet";
+        ? "dex_auth_login_google_wallet"
+        : "dex_auth_login_gate_wallet";
     return this.callTool(tool, { code, redirect_url: redirectUrl });
   }
 
@@ -142,7 +142,7 @@ export class GateMcpClient {
 
   async authLogout() {
     if (!this.mcpToken) return;
-    const result = await this.callTool("auth.logout", {
+    const result = await this.callTool("dex_auth_logout", {
       mcp_token: this.mcpToken,
     });
     this.mcpToken = null;
@@ -171,70 +171,70 @@ export class GateMcpClient {
   // ─── 链上查询（两种钱包模式共用）──────────────────────
 
   async chainConfig(chain: string) {
-    return this.callTool("chain.config", { chain });
+    return this.callTool("dex_chain_config", { chain });
   }
 
   async txGas(chain: string) {
-    return this.callTool("tx.gas", { chain });
+    return this.callTool("dex_tx_gas", { chain });
   }
 
   async txSendRaw(chain: string, rawTx: string) {
-    return this.callTool("tx.send_raw_transaction", {
+    return this.callTool("dex_tx_send_raw_transaction", {
       chain,
       raw_transaction: rawTx,
     });
   }
 
   async txTransferPreview(params: Record<string, unknown>) {
-    return this.callTool("tx.transfer_preview", params);
+    return this.callTool("dex_tx_transfer_preview", params);
   }
 
   async txQuote(params: Record<string, unknown>) {
-    return this.callTool("tx.quote", params);
+    return this.callTool("dex_tx_quote", params);
   }
 
   async txSwap(params: Record<string, unknown>) {
-    return this.callTool("tx.swap", params);
+    return this.callTool("dex_tx_swap", params);
   }
 
   async txHistory(params: Record<string, unknown>) {
-    return this.callTool("tx.history_list", params);
+    return this.callTool("dex_tx_history_list", params);
   }
 
   async txDetail(params: Record<string, unknown>) {
-    return this.callTool("tx.detail", params);
+    return this.callTool("dex_tx_detail", params);
   }
 
   // ─── 托管钱包操作（需 mcp_token）─────────────────────
 
   async walletGetAddresses() {
-    return this.callTool("wallet.get_addresses");
+    return this.callTool("dex_wallet_get_addresses");
   }
 
   async walletGetTokenList(chain?: string) {
-    return this.callTool("wallet.get_token_list", chain ? { chain } : {});
+    return this.callTool("dex_wallet_get_token_list", chain ? { chain } : {});
   }
 
   async walletGetTotalAsset() {
-    return this.callTool("wallet.get_total_asset");
+    return this.callTool("dex_wallet_get_total_asset");
   }
 
   async walletSignMessage(chain: string, message: string) {
-    return this.callTool("wallet.sign_message", { chain, message });
+    return this.callTool("dex_wallet_sign_message", { chain, message });
   }
 
   async walletSignTransaction(chain: string, txData: Record<string, unknown>) {
-    return this.callTool("wallet.sign_transaction", { chain, ...txData });
+    return this.callTool("dex_wallet_sign_transaction", { chain, ...txData });
   }
 
   // ─── 市场数据（公开，无需认证）───────────────────────
 
   async tokenGetCoinInfo(params: Record<string, unknown>) {
-    return this.callTool("token_get_coin_info", params);
+    return this.callTool("dex_token_get_coin_info", params);
   }
 
   async tokenRanking(params: Record<string, unknown>) {
-    return this.callTool("token_ranking", params);
+    return this.callTool("dex_token_ranking", params);
   }
 
   // ─── 内部方法 ─────────────────────────────────────────
