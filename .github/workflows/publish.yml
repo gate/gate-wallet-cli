@@ -3,6 +3,7 @@ name: Tag & Publish to npm
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -37,23 +38,22 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Check if tag exists
+      - name: Check if already published
         id: check
-        working-directory: .
         run: |
-          if git rev-parse "${{ steps.pkg.outputs.version }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+          if npm view gate-wallet-cli@$(node -p "require('./package.json').version") version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Publish to npm
+        if: steps.check.outputs.published == 'false'
+        run: npm publish --access public
+
       - name: Create Git tag
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.published == 'false'
         working-directory: .
         run: |
           git tag ${{ steps.pkg.outputs.version }}
           git push origin ${{ steps.pkg.outputs.version }}
-
-      - name: Publish to npm
-        if: steps.check.outputs.exists == 'false'
-        run: npm publish --access public
