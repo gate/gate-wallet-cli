@@ -1,6 +1,6 @@
 {
   "name": "gate-wallet-cli",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Gate Wallet CLI - MCP Custodial Wallet Management Tool",
   "type": "module",
   "main": "dist/cli/index.js",

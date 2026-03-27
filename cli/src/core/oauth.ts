@@ -315,7 +315,7 @@ const GOOGLE_DEFAULT_CONFIG: GoogleOAuthConfig = {
   mcpServerUrl: "https://wallet-service-mcp-test.gateweb3.cc",
   googleAuthEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
   clientId:
-    "663295861438-ehhqhr8j2cn3hailtjmedtbcd806vca6.apps.googleusercontent.com",
+    "940295588443-q9j9ub6k6i1cbvfv3jtscjkh389k2r8l.apps.googleusercontent.com",
   scope: "openid email profile",
   callbackPort: 9876,
 };
