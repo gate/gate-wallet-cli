@@ -56,6 +56,23 @@ export interface GvCheckinResult {
   need_otp: boolean;
 }
 
+/**
+ * dex_tx_swap_checkin_preview 实际返回的字段结构
+ */
+export interface SwapCheckinPreviewFields {
+  /** 本阶段使用的 mcp_token */
+  mcp_token?: string;
+  /** 链名，如 arb / eth */
+  chain?: string;
+  chain_category?: string;
+  /** 钱包地址，对应 GV checkin 的 wallet_address */
+  user_wallet?: string;
+  /** GV checkin API 路径，通常为 /api/v1/tx/checkin */
+  checkin_path?: string;
+  /** 待签名的消息体（TxBundle JSON 字符串），对应 GV checkin 的 message */
+  checkin_message?: string;
+}
+
 // ─── 签名算法 ──────────────────────────────────────────────
 
 interface SignatureParams {
