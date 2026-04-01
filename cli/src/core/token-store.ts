@@ -6,6 +6,7 @@
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { randomBytes } from "node:crypto";
 
 export interface StoredAuth {
   mcp_token: string;
@@ -18,6 +19,7 @@ export interface StoredAuth {
 
 const AUTH_DIR = join(homedir(), ".gate-wallet");
 const AUTH_FILE = join(AUTH_DIR, "auth.json");
+const DEVICE_FILE = join(AUTH_DIR, "device.json");
 
 export function saveAuth(auth: StoredAuth): void {
   mkdirSync(AUTH_DIR, { recursive: true });
@@ -54,4 +56,29 @@ export function clearAuth(): void {
 
 export function getAuthFilePath(): string {
   return AUTH_FILE;
+}
+
+/**
+ * 获取或生成稳定的设备指纹 token（首次生成后持久化到 ~/.gate-wallet/device.json）
+ * 用于 GV API 的 x-gtweb3-device-token 请求头
+ */
+export function getOrCreateDeviceToken(): string {
+  try {
+    if (existsSync(DEVICE_FILE)) {
+      const data = JSON.parse(readFileSync(DEVICE_FILE, "utf-8")) as {
+        device_token?: string;
+      };
+      if (data.device_token) return data.device_token;
+    }
+  } catch {
+    // 读取失败则重新生成
+  }
+  mkdirSync(AUTH_DIR, { recursive: true });
+  const token = randomBytes(20).toString("hex"); // 40 位 hex 字符串
+  writeFileSync(
+    DEVICE_FILE,
+    JSON.stringify({ device_token: token }, null, 2),
+    { mode: 0o600 },
+  );
+  return token;
 }

@@ -13,7 +13,9 @@ import {
   loadAuth,
   clearAuth,
   getAuthFilePath,
+  getOrCreateDeviceToken,
 } from "../core/token-store.js";
+import { GvClient, getGvBaseUrl } from "../core/gv-client.js";
 
 export function registerAuthCommands(program: Command) {
   program
@@ -511,10 +513,10 @@ export function registerShortcutCommands(program: Command) {
           unsigned_tx_hex?: string;
           confirm_message?: string;
         }>(
-          (await mcp.callTool("dex_tx_transfer_preview", previewArgs)) as Record<
-            string,
-            unknown
-          >,
+          (await mcp.callTool(
+            "dex_tx_transfer_preview",
+            previewArgs,
+          )) as Record<string, unknown>,
         );
 
         const unsignedTx =
@@ -557,17 +559,74 @@ export function registerShortcutCommands(program: Command) {
           }
         }
 
-        // Step 2: Sign
+        // Step 2: GV Checkin（获取 checkin_token，用于后续签名校验）
+        const gvSpinner = ora("GV 安全校验...").start();
+        let gvCheckinToken: string | undefined;
+        try {
+          const auth = loadAuth();
+          const mcpToken = auth?.mcp_token ?? "";
+          const mcpUrl = getServerUrl();
+          const gvClient = new GvClient({
+            baseUrl: getGvBaseUrl(mcpUrl),
+            mcpToken,
+            deviceToken: getOrCreateDeviceToken(),
+          });
+
+          const checkinResult = await gvClient.txCheckin({
+            wallet_address: from,
+            intent: {
+              chain,
+              from,
+              to: opts.to,
+              amount: opts.amount,
+              token: token,
+            },
+            module: "/wallet/transfer",
+            source: 3, // aiAgent，用于 MCP 相关业务
+          });
+
+          gvCheckinToken = checkinResult.checkin_token;
+          gvSpinner.succeed("GV 校验通过");
+
+          if (checkinResult.need_otp) {
+            const { createInterface } = await import("node:readline");
+            const rl = createInterface({
+              input: process.stdin,
+              output: process.stdout,
+            });
+            const otpCode = await new Promise<string>((resolve) => {
+              rl.question(chalk.yellow("  请输入 OTP 验证码: "), (answer) => {
+                rl.close();
+                resolve(answer.trim());
+              });
+            });
+            const otpSpinner = ora("OTP 验证中...").start();
+            await gvClient.verifyOtp(gvCheckinToken, from, otpCode);
+            otpSpinner.succeed("OTP 验证通过");
+          }
+        } catch (err) {
+          gvSpinner.fail(`GV 校验失败: ${(err as Error).message}`);
+          return;
+        }
+
+        // Step 3: Sign
         const signSpinner = ora("签名交易...").start();
         const signChain = chain === "SOL" ? "SOL" : "EVM";
+        const signArgs: Record<string, unknown> = {
+          chain: signChain,
+          raw_tx: txToSign,
+        };
+        if (gvCheckinToken) {
+          signArgs.checkin_token = gvCheckinToken;
+        }
         const signResult = extractToolJson<{
           signedTransaction?: string;
           signature?: string;
         }>(
-          (await mcp.callTool("dex_wallet_sign_transaction", {
-            chain: signChain,
-            raw_tx: txToSign,
-          })) as Record<string, unknown>,
+          (await mcp.callTool(
+            "dex_wallet_sign_transaction",
+            signArgs,
+          )) as Record<string, unknown>,
         );
 
         const signedTx = signResult.signedTransaction;
@@ -718,9 +777,9 @@ export function registerShortcutCommands(program: Command) {
     "dex_tx_send_raw_transaction",
     async (opts, _pos, mcp) => {
       const addrRes = (await mcp!.callTool(
-          "dex_wallet_get_addresses",
-          {},
-        )) as Record<string, unknown>;
+        "dex_wallet_get_addresses",
+        {},
+      )) as Record<string, unknown>;
       const accountId = addrRes.account_id as string;
       const chain = (opts.chain ?? "ETH").toUpperCase();
       const addresses = addrRes.addresses as Record<string, string> | undefined;
