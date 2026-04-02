@@ -8,6 +8,7 @@ import chalk from "chalk";
 import { registerAuthCommands, registerShortcutCommands } from "./auth.cmd.js";
 import { registerOpenApiCommands } from "./openapi.cmd.js";
 import { getMcpClientSync, getServerUrl } from "../core/mcp-client.js";
+import { registerShellEnvSnapshot } from "../core/mcp-url-source.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(__dirname, "..", "..");
@@ -15,6 +16,7 @@ const pkg = JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf-8"));
 
 /** 启动进程时已从父进程继承的变量名（终端 export 等），项目 .env 不得覆盖 */
 const envKeysFromShell = new Set(Object.keys(process.env));
+registerShellEnvSnapshot(envKeysFromShell);
 
 /**
  * @param mode

@@ -20,6 +20,7 @@ import {
   getGvBaseUrl,
   type SwapCheckinPreviewFields,
 } from "../core/gv-client.js";
+import { getMcpUrlProvenance } from "../core/mcp-url-source.js";
 
 export function registerAuthCommands(program: Command) {
   program
@@ -75,6 +76,14 @@ export function registerAuthCommands(program: Command) {
     .action(async function (this: Command) {
       const mcp = getMcpClientSync();
       const stored = loadAuth();
+
+      const prov = getMcpUrlProvenance();
+      console.log(chalk.bold("MCP_URL"));
+      console.log(`  ${prov.url}`);
+      console.log(
+        chalk.gray(`  来源: ${prov.source} — ${prov.detail}`),
+      );
+      console.log();
 
       if (mcp?.isAuthenticated()) {
         console.log(chalk.green("MCP: connected & authenticated"));
