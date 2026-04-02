@@ -13,7 +13,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(__dirname, "..", "..");
 const pkg = JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf-8"));
 
-function loadEnvFile(filePath: string): void {
+/** 启动进程时已从父进程继承的变量名（终端 export 等），项目 .env 不得覆盖 */
+const envKeysFromShell = new Set(Object.keys(process.env));
+
+/**
+ * @param mode
+ *   fill — 仅当未设置时写入（用户级默认）
+ *   overrideNonShell — 文件中出现的键一律写入，但若该键启动时已在 shell 里则保留 shell（尊重显式 export）
+ */
+function loadEnvFile(
+  filePath: string,
+  mode: "fill" | "overrideNonShell",
+): void {
   try {
     if (!existsSync(filePath)) return;
     const envContent = readFileSync(filePath, "utf-8");
@@ -24,7 +35,9 @@ function loadEnvFile(filePath: string): void {
       if (eqIdx === -1) continue;
       const key = trimmed.slice(0, eqIdx).trim();
       const value = trimmed.slice(eqIdx + 1).trim();
-      if (!process.env[key]) {
+      if (mode === "fill") {
+        if (!process.env[key]) process.env[key] = value;
+      } else if (!envKeysFromShell.has(key)) {
         process.env[key] = value;
       }
     }
@@ -33,12 +46,12 @@ function loadEnvFile(filePath: string): void {
   }
 }
 
-// 1) ~/.gate-wallet/.env (user-level config)
-loadEnvFile(join(homedir(), ".gate-wallet", ".env"));
-// 2) Repo root .env (dev mode: cli/../.env)
-loadEnvFile(join(PKG_ROOT, "..", ".env"));
-// 3) CWD/.env (fallback)
-loadEnvFile(join(process.cwd(), ".env"));
+// 1) ~/.gate-wallet/.env（用户级默认，不覆盖已有 shell 变量）
+loadEnvFile(join(homedir(), ".gate-wallet", ".env"), "fill");
+// 2) 仓库根目录 .env（覆盖用户目录里的 MCP_URL 等，便于团队测试环境）
+loadEnvFile(join(PKG_ROOT, "..", ".env"), "overrideNonShell");
+// 3) 当前工作目录 .env（最后生效，便于在子目录单独配置）
+loadEnvFile(join(process.cwd(), ".env"), "overrideNonShell");
 
 const program = new Command();
 
