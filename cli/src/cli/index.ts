@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, rmSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
@@ -48,12 +48,28 @@ function loadEnvFile(
   }
 }
 
+/** 从 cwd 向根目录逐级加载 .env（由外到内），全局安装时在项目子目录执行也能读到仓库根 .env */
+function loadEnvWalkingUpFromCwd(): void {
+  const chain: string[] = [];
+  let dir = resolve(process.cwd());
+  for (let i = 0; i < 32; i++) {
+    chain.push(dir);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  chain.reverse();
+  for (const d of chain) {
+    loadEnvFile(join(d, ".env"), "overrideNonShell");
+  }
+}
+
 // 1) ~/.gate-wallet/.env（用户级默认，不覆盖已有 shell 变量）
 loadEnvFile(join(homedir(), ".gate-wallet", ".env"), "fill");
-// 2) 仓库根目录 .env（覆盖用户目录里的 MCP_URL 等，便于团队测试环境）
+// 2) 相对「安装包」的上一级 .env（pnpm cli / 本地源码时往往是仓库根；全局安装时通常不存在）
 loadEnvFile(join(PKG_ROOT, "..", ".env"), "overrideNonShell");
-// 3) 当前工作目录 .env（最后生效，便于在子目录单独配置）
-loadEnvFile(join(process.cwd(), ".env"), "overrideNonShell");
+// 3) 自 cwd 向上的每一级 .env（全局 gate-wallet 在项目目录里执行时与 pnpm cli 行为一致）
+loadEnvWalkingUpFromCwd();
 
 const program = new Command();
 

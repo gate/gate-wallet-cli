@@ -3,10 +3,15 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_MCP_SERVER_URL, getServerUrl } from "./mcp-client.js";
+
+/** cli 包根（与 index 中 PKG_ROOT 一致），用于推断「相对安装位置」的 .env */
+function getCliPackageRoot(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+}
 
 let shellEnvKeys: Set<string> | null = null;
 
@@ -32,13 +37,17 @@ function envFileDeclaresKey(filePath: string, key: string): boolean {
   return false;
 }
 
-/** 与 index.ts 中 PKG_ROOT 一致：cli 包根目录 */
-function getCliPackageRoot(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
-function getRepoRootEnvPath(): string {
-  return join(getCliPackageRoot(), "..", ".env");
+/** 自 cwd 向上找：离当前目录最近、且 .env 里声明了 MCP_URL 的文件（与加载时「内层覆盖外层」一致） */
+function nearestEnvFileDeclaringMcpUrl(): string | null {
+  let dir = resolve(process.cwd());
+  for (let i = 0; i < 32; i++) {
+    const p = join(dir, ".env");
+    if (envFileDeclaresKey(p, "MCP_URL")) return p;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
 }
 
 export interface McpUrlProvenance {
@@ -51,7 +60,7 @@ export interface McpUrlProvenance {
 }
 
 /**
- * 推断 MCP_URL 来源（依赖与 index.ts 相同的加载顺序：用户 fill → 仓库 override → cwd override）
+ * 推断 MCP_URL 来源（与 index 一致：用户 fill → 包相对上一级 .env → cwd 向上各级 .env）
  */
 export function getMcpUrlProvenance(): McpUrlProvenance {
   const url = getServerUrl();
@@ -65,22 +74,17 @@ export function getMcpUrlProvenance(): McpUrlProvenance {
     };
   }
 
-  const cwdEnv = join(process.cwd(), ".env");
-  const repoEnv = getRepoRootEnvPath();
   const userEnv = join(homedir(), ".gate-wallet", ".env");
-
-  if (envFileDeclaresKey(cwdEnv, "MCP_URL")) {
+  const fromWalk = nearestEnvFileDeclaringMcpUrl();
+  if (fromWalk) {
+    const rel =
+      fromWalk === join(process.cwd(), ".env")
+        ? "（当前目录）"
+        : "（自当前工作目录向上找到）";
     return {
       url,
-      source: "cwd-.env",
-      detail: `${cwdEnv}（当前工作目录，最后加载）`,
-    };
-  }
-  if (envFileDeclaresKey(repoEnv, "MCP_URL")) {
-    return {
-      url,
-      source: "repo-.env",
-      detail: `${repoEnv}（仓库根目录）`,
+      source: "project-.env",
+      detail: `${fromWalk}${rel}`,
     };
   }
   if (envFileDeclaresKey(userEnv, "MCP_URL")) {
@@ -88,6 +92,15 @@ export function getMcpUrlProvenance(): McpUrlProvenance {
       url,
       source: "user-.env",
       detail: `${userEnv}`,
+    };
+  }
+
+  const pkgSiblingEnv = join(getCliPackageRoot(), "..", ".env");
+  if (envFileDeclaresKey(pkgSiblingEnv, "MCP_URL")) {
+    return {
+      url,
+      source: "package-.env",
+      detail: `${pkgSiblingEnv}（相对全局/本地安装的 CLI 包目录的上一级，可能与当前项目无关）`,
     };
   }
 
