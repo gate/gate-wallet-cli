@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, rmSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
@@ -8,12 +8,25 @@ import chalk from "chalk";
 import { registerAuthCommands, registerShortcutCommands } from "./auth.cmd.js";
 import { registerOpenApiCommands } from "./openapi.cmd.js";
 import { getMcpClientSync, getServerUrl } from "../core/mcp-client.js";
+import { registerShellEnvSnapshot } from "../core/mcp-url-source.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(__dirname, "..", "..");
 const pkg = JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf-8"));
 
-function loadEnvFile(filePath: string): void {
+/** 启动进程时已从父进程继承的变量名（终端 export 等），项目 .env 不得覆盖 */
+const envKeysFromShell = new Set(Object.keys(process.env));
+registerShellEnvSnapshot(envKeysFromShell);
+
+/**
+ * @param mode
+ *   fill — 仅当未设置时写入（用户级默认）
+ *   overrideNonShell — 文件中出现的键一律写入，但若该键启动时已在 shell 里则保留 shell（尊重显式 export）
+ */
+function loadEnvFile(
+  filePath: string,
+  mode: "fill" | "overrideNonShell",
+): void {
   try {
     if (!existsSync(filePath)) return;
     const envContent = readFileSync(filePath, "utf-8");
@@ -24,7 +37,9 @@ function loadEnvFile(filePath: string): void {
       if (eqIdx === -1) continue;
       const key = trimmed.slice(0, eqIdx).trim();
       const value = trimmed.slice(eqIdx + 1).trim();
-      if (!process.env[key]) {
+      if (mode === "fill") {
+        if (!process.env[key]) process.env[key] = value;
+      } else if (!envKeysFromShell.has(key)) {
         process.env[key] = value;
       }
     }
@@ -33,12 +48,28 @@ function loadEnvFile(filePath: string): void {
   }
 }
 
-// 1) ~/.gate-wallet/.env (user-level config)
-loadEnvFile(join(homedir(), ".gate-wallet", ".env"));
-// 2) Repo root .env (dev mode: cli/../.env)
-loadEnvFile(join(PKG_ROOT, "..", ".env"));
-// 3) CWD/.env (fallback)
-loadEnvFile(join(process.cwd(), ".env"));
+/** 从 cwd 向根目录逐级加载 .env（由外到内），全局安装时在项目子目录执行也能读到仓库根 .env */
+function loadEnvWalkingUpFromCwd(): void {
+  const chain: string[] = [];
+  let dir = resolve(process.cwd());
+  for (let i = 0; i < 32; i++) {
+    chain.push(dir);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  chain.reverse();
+  for (const d of chain) {
+    loadEnvFile(join(d, ".env"), "overrideNonShell");
+  }
+}
+
+// 1) ~/.gate-wallet/.env（用户级默认，不覆盖已有 shell 变量）
+loadEnvFile(join(homedir(), ".gate-wallet", ".env"), "fill");
+// 2) 相对「安装包」的上一级 .env（pnpm cli / 本地源码时往往是仓库根；全局安装时通常不存在）
+loadEnvFile(join(PKG_ROOT, "..", ".env"), "overrideNonShell");
+// 3) 自 cwd 向上的每一级 .env（全局 gate-wallet 在项目目录里执行时与 pnpm cli 行为一致）
+loadEnvWalkingUpFromCwd();
 
 const program = new Command();
 

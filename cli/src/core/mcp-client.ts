@@ -13,10 +13,12 @@ export interface McpClientConfig {
   apiKey?: string;
 }
 
-const DEFAULT_SERVER_URL = "https://wallet-service-mcp-prod.gateweb3.cc/mcp";
+/** 未配置 MCP_URL 时的默认 MCP 服务地址（生产） */
+export const DEFAULT_MCP_SERVER_URL =
+  "https://wallet-service-mcp-prod.gateweb3.cc/mcp";
 
 export function getServerUrl(): string {
-  return process.env["MCP_URL"] ?? DEFAULT_SERVER_URL;
+  return process.env["MCP_URL"] ?? DEFAULT_MCP_SERVER_URL;
 }
 
 const DEFAULT_CONFIG: McpClientConfig = {

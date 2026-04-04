@@ -11,7 +11,7 @@ A command-line interface for [Gate](https://gate.com) Web3 wallet. Supports MCP 
 
 - **Dual Channel** — MCP (OAuth + custodial signing) and OpenAPI (AK/SK + self-custody signing)
 - **Hybrid Swap** — OpenAPI quotes/builds + MCP signs, no private key needed
-- **Multi-chain** — 18+ chains including Ethereum, BSC, Arbitrum, Solana, TON, Sui, TRON
+- **Multi-chain** — EVM chains (Ethereum, BSC, Arbitrum, Base, Polygon, etc.) and Solana
 - **Wallet** — balance, addresses, tokens, one-click transfers (preview→sign→broadcast)
 - **Swap** — full lifecycle: quote → build → sign → submit → status tracking
 - **Market data** — K-line, liquidity, trade volume, token rankings, security audits
@@ -214,9 +214,6 @@ gate-wallet
 | zkSync    | 324      | zksync    |
 | Mantle    | 5000     | mantle    |
 | GateLayer | 10088    | gatelayer |
-| TRON      | 195      | TRX       |
-| Sui       | 101      | sui       |
-| TON       | 607      | ton       |
 
 ## Documentation
 

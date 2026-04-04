@@ -13,7 +13,14 @@ import {
   loadAuth,
   clearAuth,
   getAuthFilePath,
+  getOrCreateDeviceToken,
 } from "../core/token-store.js";
+import {
+  GvClient,
+  getGvBaseUrl,
+  type SwapCheckinPreviewFields,
+} from "../core/gv-client.js";
+import { getMcpUrlProvenance } from "../core/mcp-url-source.js";
 
 export function registerAuthCommands(program: Command) {
   program
@@ -69,6 +76,14 @@ export function registerAuthCommands(program: Command) {
     .action(async function (this: Command) {
       const mcp = getMcpClientSync();
       const stored = loadAuth();
+
+      const prov = getMcpUrlProvenance();
+      console.log(chalk.bold("MCP_URL"));
+      console.log(`  ${prov.url}`);
+      console.log(
+        chalk.gray(`  来源: ${prov.source} — ${prov.detail}`),
+      );
+      console.log();
 
       if (mcp?.isAuthenticated()) {
         console.log(chalk.green("MCP: connected & authenticated"));
@@ -173,6 +188,49 @@ async function ensureAuthedMcp(): Promise<GateMcpClient> {
   return mcp;
 }
 
+/**
+ * Swap 专用 GV Checkin：
+ * 1. 调用 dex_tx_swap_checkin_preview 获取本阶段所需的 checkin 字段
+ * 2. 用这些字段调用 GV /api/v1/tx/checkin 取得 checkin_token
+ */
+async function performSwapGvCheckin(
+  mcp: GateMcpClient,
+  swapSessionId: string,
+  stage: "approve" | "swap",
+): Promise<string> {
+  // Step A: 获取 checkin 预览字段
+  const previewRaw = (await mcp.callTool("dex_tx_swap_checkin_preview", {
+    swap_session_id: swapSessionId,
+    stage,
+  })) as Record<string, unknown>;
+
+  const preview = extractToolJson<SwapCheckinPreviewFields>(previewRaw);
+  if (!preview?.user_wallet || !preview?.checkin_message) {
+    throw new Error(
+      `checkin_preview 返回字段不完整: ${JSON.stringify(preview)}`,
+    );
+  }
+
+  // Step B: 调用 GV checkin
+  const auth = loadAuth();
+  // checkin_preview 可能返回专属 mcp_token，优先使用
+  const mcpToken = preview.mcp_token ?? auth?.mcp_token ?? "";
+  const gvClient = new GvClient({
+    baseUrl: getGvBaseUrl(getServerUrl()),
+    mcpToken,
+    deviceToken: getOrCreateDeviceToken(),
+  });
+
+  const checkinResult = await gvClient.txCheckin({
+    wallet_address: preview.user_wallet,
+    message: preview.checkin_message,
+    module: `/wallet/swap/${stage}`,
+    source: 3,
+  });
+
+  return checkinResult.checkin_token;
+}
+
 /** 从 callTool 返回的 MCP content 中提取 JSON 对象 */
 function extractToolJson<T = Record<string, unknown>>(
   result: Record<string, unknown>,
@@ -258,25 +316,116 @@ export function registerShortcutCommands(program: Command) {
   shortcut("balance", "查询总资产余额", "dex_wallet_get_total_asset");
   shortcut("address", "查询钱包地址", "dex_wallet_get_addresses");
   shortcut("tokens", "查询 token 列表和余额", "dex_wallet_get_token_list");
-  shortcut(
-    "sign-msg",
-    "签名消息 (必须为 32 位 hex 字符串，如 aabbccddeeff00112233445566778899)",
-    "dex_wallet_sign_message",
-    (opts, pos) => {
-      const msg = pos[0] ?? "";
-      if (!/^[0-9a-fA-F]{32}$/.test(msg)) {
-        throw new Error(
-          "message 必须为 32 位十六进制字符串 (16 bytes)，例如: aabbccddeeff00112233445566778899",
+  program
+    .command("sign-msg <message>")
+    .description(
+      "签名消息（32 字节 / 64 位 hex 字符串），自动完成 GV 安全校验后签名",
+    )
+    .option("--chain <chain>", "链名称: ETH | ARB | BSC | SOL 等", "ETH")
+    .action(async function (
+      this: Command,
+      message: string,
+      opts: Record<string, string | undefined>,
+    ) {
+      try {
+        if (!/^[0-9a-fA-F]{64}$/.test(message)) {
+          console.error(
+            chalk.red(
+              "message 必须为 64 位十六进制字符串 (32 bytes)，例如: aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+            ),
+          );
+          return;
+        }
+
+        const mcp = await ensureAuthedMcp();
+        const chain = (opts.chain ?? "ETH").toUpperCase();
+
+        // Step 1: 获取钱包地址
+        const addrData = extractToolJson<{
+          addresses?: Record<string, string>;
+        }>(
+          (await mcp.callTool("dex_wallet_get_addresses", {})) as Record<
+            string,
+            unknown
+          >,
         );
+        const chainType = chain === "SOL" ? "SOL" : "EVM";
+        const walletAddress = addrData?.addresses?.[chainType] ?? "";
+        if (!walletAddress) {
+          console.error(chalk.red(`未找到 ${chainType} 钱包地址`));
+          return;
+        }
+
+        // Step 2: GV Checkin
+        const gvSpinner = ora("GV 安全校验...").start();
+        let gvCheckinToken: string | undefined;
+        try {
+          const auth = loadAuth();
+          const mcpToken = auth?.mcp_token ?? "";
+          const mcpUrl = getServerUrl();
+          const gvClient = new GvClient({
+            baseUrl: getGvBaseUrl(mcpUrl),
+            mcpToken,
+            deviceToken: getOrCreateDeviceToken(),
+          });
+
+          const checkinResult = await gvClient.txCheckin({
+            wallet_address: walletAddress,
+            message,
+            module: "/wallet/sign-message",
+            source: 3,
+          });
+
+          gvCheckinToken = checkinResult.checkin_token;
+          gvSpinner.succeed("GV 校验通过");
+
+          if (checkinResult.need_otp) {
+            const { createInterface } = await import("node:readline");
+            const rl = createInterface({
+              input: process.stdin,
+              output: process.stdout,
+            });
+            const otpCode = await new Promise<string>((resolve) => {
+              rl.question(
+                chalk.yellow("  请输入 OTP 验证码: "),
+                (answer) => {
+                  rl.close();
+                  resolve(answer.trim());
+                },
+              );
+            });
+            const otpSpinner = ora("OTP 验证中...").start();
+            await gvClient.verifyOtp(gvCheckinToken, walletAddress, otpCode);
+            otpSpinner.succeed("OTP 验证通过");
+          }
+        } catch (err) {
+          gvSpinner.fail(`GV 校验失败: ${(err as Error).message}`);
+          return;
+        }
+
+        // Step 3: 签名消息
+        const signSpinner = ora("签名消息...").start();
+        const signArgs: Record<string, unknown> = { chain, message };
+        if (gvCheckinToken) signArgs.checkin_token = gvCheckinToken;
+
+        const signResult = extractToolJson<{ signature?: string }>(
+          (await mcp.callTool(
+            "dex_wallet_sign_message",
+            signArgs,
+          )) as Record<string, unknown>,
+        );
+
+        if (signResult?.signature) {
+          signSpinner.succeed("签名成功");
+          console.log(chalk.green(`  Signature: ${signResult.signature}`));
+        } else {
+          signSpinner.fail("签名失败");
+          console.log(JSON.stringify(signResult, null, 2));
+        }
+      } catch (err) {
+        console.error(chalk.red((err as Error).message));
       }
-      return {
-        message: msg,
-        chain: (opts.chain ?? "EVM").toUpperCase(),
-      };
-    },
-    [["--chain <chain>", "链类型: EVM | SOL", "EVM"]],
-    "<message>",
-  );
+    });
   shortcut(
     "sign-tx",
     "签名原始交易",
@@ -511,10 +660,10 @@ export function registerShortcutCommands(program: Command) {
           unsigned_tx_hex?: string;
           confirm_message?: string;
         }>(
-          (await mcp.callTool("dex_tx_transfer_preview", previewArgs)) as Record<
-            string,
-            unknown
-          >,
+          (await mcp.callTool(
+            "dex_tx_transfer_preview",
+            previewArgs,
+          )) as Record<string, unknown>,
         );
 
         const unsignedTx =
@@ -557,17 +706,73 @@ export function registerShortcutCommands(program: Command) {
           }
         }
 
-        // Step 2: Sign
+        // Step 2: GV Checkin（获取 checkin_token，用于后续签名校验）
+        const gvSpinner = ora("GV 安全校验...").start();
+        let gvCheckinToken: string | undefined;
+        try {
+          const auth = loadAuth();
+          const mcpToken = auth?.mcp_token ?? "";
+          const mcpUrl = getServerUrl();
+          const gvClient = new GvClient({
+            baseUrl: getGvBaseUrl(mcpUrl),
+            mcpToken,
+            deviceToken: getOrCreateDeviceToken(),
+          });
+
+          const checkinResult = await gvClient.txCheckin({
+            wallet_address: from,
+            intent: {
+              chain,
+              from,
+              to: opts.to,
+              amount: opts.amount,
+              token: token,
+            },
+            module: "/wallet/transfer",
+            source: 3, // aiAgent，用于 MCP 相关业务
+          });
+
+          gvCheckinToken = checkinResult.checkin_token;
+          gvSpinner.succeed("GV 校验通过");
+
+          if (checkinResult.need_otp) {
+            const { createInterface } = await import("node:readline");
+            const rl = createInterface({
+              input: process.stdin,
+              output: process.stdout,
+            });
+            const otpCode = await new Promise<string>((resolve) => {
+              rl.question(chalk.yellow("  请输入 OTP 验证码: "), (answer) => {
+                rl.close();
+                resolve(answer.trim());
+              });
+            });
+            const otpSpinner = ora("OTP 验证中...").start();
+            await gvClient.verifyOtp(gvCheckinToken, from, otpCode);
+            otpSpinner.succeed("OTP 验证通过");
+          }
+        } catch (err) {
+          gvSpinner.fail(`GV 校验失败: ${(err as Error).message}`);
+          return;
+        }
+
+        // Step 3: Sign
         const signSpinner = ora("签名交易...").start();
-        const signChain = chain === "SOL" ? "SOL" : "EVM";
+        const signArgs: Record<string, unknown> = {
+          chain: chain,
+          raw_tx: txToSign,
+        };
+        if (gvCheckinToken) {
+          signArgs.checkin_token = gvCheckinToken;
+        }
         const signResult = extractToolJson<{
           signedTransaction?: string;
           signature?: string;
         }>(
-          (await mcp.callTool("dex_wallet_sign_transaction", {
-            chain: signChain,
-            raw_tx: txToSign,
-          })) as Record<string, unknown>,
+          (await mcp.callTool(
+            "dex_wallet_sign_transaction",
+            signArgs,
+          )) as Record<string, unknown>,
         );
 
         const signedTx = signResult.signedTransaction;
@@ -656,54 +861,192 @@ export function registerShortcutCommands(program: Command) {
       ["--wallet <address>", "钱包地址 (默认自动获取)"],
     ],
   );
-  shortcut(
-    "swap",
-    "一键兑换 (Quote→Build→Sign→Submit)",
-    "dex_tx_swap",
-    async (opts, _pos, mcp) => {
-      const addrRes = (await mcp!.callTool(
-        "dex_wallet_get_addresses",
-        {},
-      )) as Record<string, unknown>;
-      const accountId = addrRes.account_id as string;
-      const addresses = addrRes.addresses as Record<string, string> | undefined;
-      const chainIdIn = Number(opts.fromChain ?? 1);
-      const wallet =
-        opts.wallet ??
-        (chainIdIn === 501 ? addresses?.["SOL"] : addresses?.["EVM"]) ??
-        "";
+  program
+    .command("swap")
+    .description(
+      "一键兑换 (Quote → Confirm → Prepare → GV Checkin → Sign → Submit)",
+    )
+    .option("--from-chain <id>", "源链 ID (ETH=1, BSC=56, ARB=42161, SOL=501...)", "1")
+    .option("--to-chain <id>", "目标链 ID (同链则与 from-chain 相同)")
+    .option("--from <token>", "源 token 合约地址，原生币用 -")
+    .option("--to <token>", "目标 token 合约地址")
+    .option("--amount <amount>", "数量")
+    .option("--slippage <pct>", "滑点 (0.03=3%，0.5=50%)", "0.03")
+    .option("--native-in <0|1>", "源 token 是否原生币 (1=是)", "0")
+    .option("--native-out <0|1>", "目标 token 是否原生币 (1=是)", "0")
+    .option("--wallet <address>", "源链钱包地址（默认自动获取）")
+    .option("--to-wallet <address>", "目标链钱包地址（跨链时需要）")
+    .action(async function (this: Command, opts: Record<string, string | undefined>) {
+      try {
+        const mcp = await ensureAuthedMcp();
 
-      const rawSlippage = Number(opts.slippage ?? "0.03");
-      const slippage = rawSlippage >= 1 ? rawSlippage / 100 : rawSlippage;
+        // Step 1: 获取钱包地址
+        const addrRes = extractToolJson<{
+          account_id?: string;
+          addresses?: Record<string, string>;
+        }>(
+          (await mcp.callTool("dex_wallet_get_addresses", {})) as Record<string, unknown>,
+        );
+        const accountId = addrRes?.account_id ?? "";
+        const addresses = addrRes?.addresses ?? {};
+        const chainIdIn = Number(opts.fromChain ?? 1);
+        const chainIdOut = Number(opts.toChain ?? opts.fromChain ?? 1);
+        const wallet =
+          opts.wallet ??
+          (chainIdIn === 501 ? addresses["SOL"] : addresses["EVM"]) ??
+          "";
 
-      const args: Record<string, unknown> = {
-        chain_id_in: chainIdIn,
-        chain_id_out: Number(opts.toChain ?? opts.fromChain ?? 1),
-        token_in: opts.from,
-        token_out: opts.to,
-        amount: opts.amount,
-        slippage,
-        user_wallet: wallet,
-        native_in: Number(opts.nativeIn ?? "0"),
-        native_out: Number(opts.nativeOut ?? "0"),
-        account_id: accountId,
-      };
-      if (opts.toWallet) args.to_wallet = opts.toWallet;
-      return args;
-    },
-    [
-      ["--from-chain <id>", "源链 ID (ETH=1, BSC=56, SOL=501...)", "1"],
-      ["--to-chain <id>", "目标链 ID", "1"],
-      ["--from <token>", "源 token 地址, 原生币用 -"],
-      ["--to <token>", "目标 token 合约地址"],
-      ["--amount <amount>", "数量"],
-      ["--slippage <pct>", "滑点 (0.03=3%)", "0.03"],
-      ["--native-in <0|1>", "源 token 是否原生币 (1=是, 0=否)", "0"],
-      ["--native-out <0|1>", "目标 token 是否原生币 (1=是, 0=否)", "0"],
-      ["--wallet <address>", "源链钱包地址 (默认自动获取)"],
-      ["--to-wallet <address>", "目标链钱包地址 (跨链时需要)"],
-    ],
-  );
+        const rawSlippage = Number(opts.slippage ?? "0.03");
+        const slippage = rawSlippage >= 1 ? rawSlippage / 100 : rawSlippage;
+
+        // Step 2: Quote
+        const quoteSpinner = ora("获取报价...").start();
+        const quoteArgs: Record<string, unknown> = {
+          chain_id_in: chainIdIn,
+          chain_id_out: chainIdOut,
+          token_in: opts.from,
+          token_out: opts.to,
+          amount: opts.amount,
+          slippage,
+          user_wallet: wallet,
+          native_in: Number(opts.nativeIn ?? "0"),
+          native_out: Number(opts.nativeOut ?? "0"),
+        };
+        if (opts.toWallet) quoteArgs.to_wallet = opts.toWallet;
+
+        const quoteResult = extractToolJson<{
+          to_amount?: string;
+          to_amount_usd?: string;
+          price_impact?: string;
+          gas_fee_usd?: string;
+          routes?: Array<{ need_approved?: number; path?: string[] }>;
+        }>(
+          (await mcp.callTool("dex_tx_swap_quote", quoteArgs)) as Record<string, unknown>,
+        );
+        quoteSpinner.succeed("报价获取成功");
+
+        console.log(chalk.bold("\n兑换预览："));
+        console.log(`  获得：${chalk.green(quoteResult?.to_amount ?? "-")} (~$${quoteResult?.to_amount_usd ?? "-"})`);
+        console.log(`  价格影响：${quoteResult?.price_impact ?? "-"}`);
+        console.log(`  Gas 费用：~$${quoteResult?.gas_fee_usd ?? "-"}`);
+        const needApproved = quoteResult?.routes?.[0]?.need_approved === 2;
+        if (needApproved) {
+          console.log(chalk.yellow("  ⚠️  需要先进行 Token 授权（Approve）"));
+        }
+
+        // Step 3: 用户确认
+        const { createInterface } = await import("node:readline");
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const confirm = await new Promise<string>((resolve) => {
+          rl.question(chalk.yellow("\n确认兑换? (y/N): "), (a) => { rl.close(); resolve(a.trim().toLowerCase()); });
+        });
+        if (confirm !== "y") {
+          console.log(chalk.gray("已取消"));
+          return;
+        }
+
+        // Step 4: Prepare
+        const prepareSpinner = ora("准备兑换会话...").start();
+        const prepareArgs: Record<string, unknown> = {
+          ...quoteArgs,
+          account_id: accountId,
+        };
+        const prepareResult = extractToolJson<{
+          swap_session_id?: string;
+          need_approved?: boolean;
+        }>(
+          (await mcp.callTool("dex_tx_swap_prepare", prepareArgs)) as Record<string, unknown>,
+        );
+        const swapSessionId = prepareResult?.swap_session_id;
+        if (!swapSessionId) {
+          prepareSpinner.fail("Prepare 失败，未获得 swap_session_id");
+          console.log(JSON.stringify(prepareResult, null, 2));
+          return;
+        }
+        prepareSpinner.succeed(`会话创建成功 (${swapSessionId.slice(0, 8)}...)`);
+
+        // Step 5: Approve（如需要）
+        if (prepareResult?.need_approved) {
+          const approveGvSpinner = ora("GV 安全校验（Approve 阶段）...").start();
+          let approveCheckinToken: string;
+          try {
+            approveCheckinToken = await performSwapGvCheckin(mcp, swapSessionId, "approve");
+            approveGvSpinner.succeed("GV 校验通过（Approve）");
+          } catch (err) {
+            approveGvSpinner.fail(`GV 校验失败: ${(err as Error).message}`);
+            return;
+          }
+
+          const approveSpinner = ora("签名 Approve...").start();
+          const approveResult = extractToolJson<{ success?: boolean }>(
+            (await mcp.callTool("dex_tx_swap_sign_approve", {
+              swap_session_id: swapSessionId,
+              checkin_token: approveCheckinToken,
+            })) as Record<string, unknown>,
+          );
+          if (!approveResult) {
+            approveSpinner.fail("Approve 签名失败");
+            return;
+          }
+          approveSpinner.succeed("Approve 签名成功");
+        }
+
+        // Step 6: Swap GV Checkin
+        const swapGvSpinner = ora("GV 安全校验（Swap 阶段）...").start();
+        let swapCheckinToken: string;
+        try {
+          swapCheckinToken = await performSwapGvCheckin(mcp, swapSessionId, "swap");
+          swapGvSpinner.succeed("GV 校验通过（Swap）");
+        } catch (err) {
+          swapGvSpinner.fail(`GV 校验失败: ${(err as Error).message}`);
+          return;
+        }
+
+        // Step 7: Sign Swap
+        const signSwapSpinner = ora("签名兑换交易...").start();
+        const signSwapResult = extractToolJson<{ success?: boolean }>(
+          (await mcp.callTool("dex_tx_swap_sign_swap", {
+            swap_session_id: swapSessionId,
+            checkin_token: swapCheckinToken,
+          })) as Record<string, unknown>,
+        );
+        if (!signSwapResult) {
+          signSwapSpinner.fail("Swap 签名失败");
+          return;
+        }
+        signSwapSpinner.succeed("Swap 签名成功");
+
+        // Step 8: Submit
+        const submitSpinner = ora("提交兑换...").start();
+        const submitResult = extractToolJson<{
+          tx_order_id?: string;
+          tx_hash?: string;
+          explorer_url?: string;
+        }>(
+          (await mcp.callTool("dex_tx_swap_submit", {
+            swap_session_id: swapSessionId,
+          })) as Record<string, unknown>,
+        );
+
+        if (submitResult?.tx_order_id || submitResult?.tx_hash) {
+          submitSpinner.succeed("兑换已提交");
+          if (submitResult.tx_hash) {
+            console.log(chalk.green(`  Hash: ${submitResult.tx_hash}`));
+          }
+          if (submitResult.tx_order_id) {
+            console.log(chalk.gray(`  Order ID: ${submitResult.tx_order_id}`));
+          }
+          if (submitResult.explorer_url) {
+            console.log(chalk.gray(`  Explorer: ${submitResult.explorer_url}`));
+          }
+        } else {
+          submitSpinner.fail("提交失败");
+          console.log(JSON.stringify(submitResult, null, 2));
+        }
+      } catch (err) {
+        console.error(chalk.red((err as Error).message));
+      }
+    });
   shortcut(
     "swap-detail",
     "查询兑换交易详情",
@@ -718,9 +1061,9 @@ export function registerShortcutCommands(program: Command) {
     "dex_tx_send_raw_transaction",
     async (opts, _pos, mcp) => {
       const addrRes = (await mcp!.callTool(
-          "dex_wallet_get_addresses",
-          {},
-        )) as Record<string, unknown>;
+        "dex_wallet_get_addresses",
+        {},
+      )) as Record<string, unknown>;
       const accountId = addrRes.account_id as string;
       const chain = (opts.chain ?? "ETH").toUpperCase();
       const addresses = addrRes.addresses as Record<string, string> | undefined;
