@@ -14,6 +14,7 @@ import {
   clearAuth,
   getAuthFilePath,
   getOrCreateDeviceToken,
+  buildUserAgent,
 } from "../core/token-store.js";
 import {
   GvClient,
@@ -1483,7 +1484,12 @@ async function loginGoogleViaRest(mcp: GateMcpClient, serverUrl: string) {
   try {
     const res = await fetch(`${baseUrl}/oauth/google/device/start`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": buildUserAgent(),
+        "x-gtweb3-device-token": getOrCreateDeviceToken(),
+        "source": "3",
+      },
       body: JSON.stringify({}),
     });
 
@@ -1556,7 +1562,12 @@ async function loginGoogleViaRest(mcp: GateMcpClient, serverUrl: string) {
     try {
       const res = await fetch(`${baseUrl}/oauth/google/device/poll`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": buildUserAgent(),
+          "x-gtweb3-device-token": getOrCreateDeviceToken(),
+          "source": "3",
+        },
         body: JSON.stringify({ flow_id: flowId }),
       });
 
@@ -1621,7 +1632,12 @@ async function loginGateViaRest(mcp: GateMcpClient, serverUrl: string) {
   try {
     const res = await fetch(`${baseUrl}/oauth/gate/device/start`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": buildUserAgent(),
+        "x-gtweb3-device-token": getOrCreateDeviceToken(),
+        "source": "3",
+      },
       body: JSON.stringify({}),
     });
 
@@ -1675,7 +1691,12 @@ async function loginGateViaRest(mcp: GateMcpClient, serverUrl: string) {
     try {
       const res = await fetch(`${baseUrl}/oauth/gate/device/poll`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": buildUserAgent(),
+          "x-gtweb3-device-token": getOrCreateDeviceToken(),
+          "source": "3",
+        },
         body: JSON.stringify({ flow_id: flowData.flow_id }),
       });
 

@@ -4,9 +4,31 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, type, release, arch } from "node:os";
 import { randomBytes } from "node:crypto";
+
+
+/**
+ * 构建 CLI 设备 User-Agent
+ * 格式：gate-wallet-cli/{version} (macOS {version}; {arch})
+ * 示例：gate-wallet-cli/1.0.6 (macOS 26.2; arm64)
+ */
+export function buildUserAgent(): string {
+  const cpuArch = arch();
+
+  if (type() === "Darwin") {
+    try {
+      const macVer = execFileSync("sw_vers", ["-productVersion"], { encoding: "utf-8" }).trim();
+      return `macOS ${macVer}; ${cpuArch}`;
+    } catch {
+      // 兜底用 Darwin 内核版本
+    }
+  }
+
+  return `${type()} ${release()}; ${cpuArch}`;
+}
 
 export interface StoredAuth {
   mcp_token: string;
