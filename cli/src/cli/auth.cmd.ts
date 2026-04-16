@@ -19,6 +19,7 @@ import {
 import {
   GvClient,
   getGvBaseUrl,
+  getWalletQuickBaseUrl,
   type SwapCheckinPreviewFields,
 } from "../core/gv-client.js";
 import { getMcpUrlProvenance } from "../core/mcp-url-source.js";
@@ -115,10 +116,21 @@ export function registerAuthCommands(program: Command) {
     .command("logout")
     .description("Logout and clear token")
     .action(async () => {
-      const mcp = getMcpClientSync();
-      if (mcp?.isAuthenticated()) {
+      const stored = loadAuth();
+      // best-effort: 调用服务端删除登录会话
+      if (stored?.session_id) {
         try {
-          await mcp.authLogout();
+          const walletQuickUrl = getWalletQuickBaseUrl(getServerUrl());
+          await fetch(`${walletQuickUrl}/delete-login-session`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": buildUserAgent(),
+              "x-gtweb3-device-token": getOrCreateDeviceToken(),
+              "source": "3",
+            },
+            body: JSON.stringify({ id: stored.session_id }),
+          });
         } catch {
           // best-effort server-side logout
         }
@@ -1582,6 +1594,8 @@ async function loginGoogleViaRest(mcp: GateMcpClient, serverUrl: string) {
           process.removeListener("SIGINT", onSigint);
           pollSpinner.succeed("Google login successful!");
 
+          const sessionId = await fetchLoginSessionId(serverUrl, token);
+
           saveAuth({
             mcp_token: token,
             provider: "google",
@@ -1589,6 +1603,7 @@ async function loginGoogleViaRest(mcp: GateMcpClient, serverUrl: string) {
             expires_at: poll.expires_in
               ? Date.now() + poll.expires_in * 1000
               : Date.now() + 30 * 86_400_000,
+            session_id: sessionId,
             env: "default",
             server_url: serverUrl,
           });
@@ -1711,6 +1726,8 @@ async function loginGateViaRest(mcp: GateMcpClient, serverUrl: string) {
           process.removeListener("SIGINT", onSigint);
           pollSpinner.succeed("Gate login successful!");
 
+          const sessionId = await fetchLoginSessionId(serverUrl, token);
+
           saveAuth({
             mcp_token: token,
             provider: "gate",
@@ -1718,6 +1735,7 @@ async function loginGateViaRest(mcp: GateMcpClient, serverUrl: string) {
             expires_at: poll.expires_in
               ? Date.now() + poll.expires_in * 1000
               : Date.now() + 30 * 86_400_000,
+            session_id: sessionId,
             env: "default",
             server_url: serverUrl,
           });
@@ -1876,5 +1894,35 @@ async function reportWalletAddresses(mcp: GateMcpClient): Promise<void> {
     }
   } catch (err) {
     reportSpinner.warn(`Wallet report failed: ${(err as Error).message}`);
+  }
+}
+
+// ─── 登录会话 ─────────────────────────────────────────────
+
+/**
+ * 登录成功后调用 login-sessions 接口获取当前会话 id
+ * 用于后续 logout 时调用 delete-login-session
+ */
+async function fetchLoginSessionId(
+  serverUrl: string,
+  mcpToken: string,
+): Promise<string | undefined> {
+  try {
+    const walletQuickUrl = getWalletQuickBaseUrl(serverUrl);
+    const res = await fetch(`${walletQuickUrl}/login-sessions`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": buildUserAgent(),
+        "x-gtweb3-device-token": getOrCreateDeviceToken(),
+        "source": "3",
+        Authorization: `Bearer ${mcpToken}`,
+      },
+    });
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as { data?: { id?: string }[] };
+    return data.data?.[0]?.id;
+  } catch {
+    return undefined;
   }
 }

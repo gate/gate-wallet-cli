@@ -33,6 +33,25 @@ export function getGvBaseUrl(mcpUrl: string): string {
   return GV_URL_PROD;
 }
 
+// ─── Wallet Quick API URL 映射 ─────────────────────────────
+
+const WALLET_QUICK_URL_TEST = "https://webapi-test.gateweb3.cc/api/web/v1/web3-business-wallet/v1/wallet/quick";
+const WALLET_QUICK_URL_PROD = "https://webapi.gateweb3.cc/api/web/v1/web3-business-wallet/v1/wallet/quick";
+
+/**
+ * 根据 MCP_URL 推断对应的 Wallet Quick API base URL（预发与生产共用）
+ */
+export function getWalletQuickBaseUrl(mcpUrl: string): string {
+  if (
+    mcpUrl.includes("-test.") ||
+    mcpUrl.includes("test-") ||
+    mcpUrl.includes("localhost")
+  ) {
+    return WALLET_QUICK_URL_TEST;
+  }
+  return WALLET_QUICK_URL_PROD;
+}
+
 // ─── 类型定义 ──────────────────────────────────────────────
 
 export interface GvCheckinParams {

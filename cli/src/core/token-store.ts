@@ -35,6 +35,7 @@ export interface StoredAuth {
   provider: "gate" | "google";
   user_id?: string | undefined;
   expires_at?: number | undefined;
+  session_id?: string | undefined;
   env: string;
   server_url: string;
 }
